@@ -1,0 +1,19 @@
+{
+  "topics": [
+    {
+      "topic_id": "remote_work",
+      "prompt_context": "The topic under discussion is: 'Companies should require employees to return to the office full-time, rather than allowing remote or hybrid work.'",
+      "stance_question": "On a scale from -1 (strongly disagree, companies should NOT require full-time office return) to +1 (strongly agree, companies SHOULD require full-time office return), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "ai_regulation",
+      "prompt_context": "The topic under discussion is: 'Governments should heavily regulate the development of advanced AI systems, even if it slows down innovation.'",
+      "stance_question": "On a scale from -1 (strongly disagree, AI should NOT be heavily regulated) to +1 (strongly agree, AI SHOULD be heavily regulated), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "college_value",
+      "prompt_context": "The topic under discussion is: 'A four-year college degree is still worth the time and money for most young people today.'",
+      "stance_question": "On a scale from -1 (strongly disagree, college is NOT worth it) to +1 (strongly agree, college IS worth it), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    }
+  ]
+}
