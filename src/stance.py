@@ -7,7 +7,7 @@ from src.llm_client import LLMClient
 from src.schemas import Agent, Message
 
 
-def _format_history(messages: list[Message], max_messages: int = 20) -> str:
+def _format_history(messages: list[Message], max_messages: int = 10) -> str:
     """Render recent conversation history as plain text for the prompt."""
     if not messages:
         return "(No conversation has happened yet.)"
@@ -37,34 +37,54 @@ def elicit_stance(
     stance_question: str,
     conversation_history: list[Message],
     max_retries: int = 2,
+    num_samples: int = 2,
 ) -> tuple[float, str]:
     """
-    Returns (stance_value, raw_model_response).
-    Retries a small number of times if parsing fails.
+    Returns (stance_value, raw_model_response_from_first_sample).
+
+    To reduce measurement noise, this draws `num_samples` independent stance
+    readings at low temperature and returns their mean. The raw text of the
+    first sample is returned alongside for logging/debugging purposes only --
+    the numeric value is what should be used downstream.
+
+    num_samples defaults to 2 (down from 3) to reduce token usage for
+    volume runs -- noise floor was ~0.05 at 3 samples; re-run noise_check.py
+    if you need to confirm 2 samples is still acceptable.
     """
     system_prompt = (
         f"{agent.persona_description}\n\n"
         "You are participating in a group discussion. Stay fully in character. "
-        "Always follow the requested response format exactly."
+        "Always follow the requested response format exactly. Be extremely brief."
     )
     history_text = _format_history(conversation_history)
     user_prompt = (
         f"{topic_context}\n\n"
         f"Conversation so far:\n{history_text}\n\n"
-        f"{stance_question}"
+        f"{stance_question} Keep your explanation to under 15 words."
     )
 
-    last_error = None
-    for attempt in range(max_retries + 1):
-        raw = client.complete(system_prompt, user_prompt, temperature=0.7, max_tokens=100)
-        try:
-            value = _parse_stance_number(raw)
-            return value, raw
-        except ValueError as e:
-            last_error = e
-            continue
+    samples = []
+    first_raw = None
+    for i in range(num_samples):
+        last_error = None
+        for attempt in range(max_retries + 1):
+            # Low temperature: this is a measurement instrument, not creative
+            # writing -- we want consistency, not variety, from each single draw.
+            raw = client.complete(system_prompt, user_prompt, temperature=0.3, max_tokens=150)
+            try:
+                value = _parse_stance_number(raw)
+                samples.append(value)
+                if first_raw is None:
+                    first_raw = raw
+                break
+            except ValueError as e:
+                last_error = e
+                continue
+        else:
+            raise RuntimeError(
+                f"Failed to parse a stance number for agent {agent.agent_id} "
+                f"after {max_retries + 1} attempts on sample {i+1}. Last error: {last_error}"
+            )
 
-    raise RuntimeError(
-        f"Failed to parse a stance number for agent {agent.agent_id} "
-        f"after {max_retries + 1} attempts. Last error: {last_error}"
-    )
+    mean_value = sum(samples) / len(samples)
+    return mean_value, first_raw

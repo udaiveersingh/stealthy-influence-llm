@@ -21,10 +21,10 @@ def generate_agent_message(
         f"{agent.persona_description}\n\n"
         "You are participating in an ongoing group discussion. Stay fully in character "
         "and react genuinely to what others have said -- agree, disagree, or add a new point, "
-        "based on your persona. Keep your response to 1-3 sentences, written as a natural "
-        "social-media-style post."
+        "based on your persona. Keep your response to 1-2 short sentences, written as a natural "
+        "social-media-style post. Be concise."
     )
-    history_text = "\n".join(f"[{m.agent_id}]: {m.content}" for m in conversation_history[-15:]) \
+    history_text = "\n".join(f"[{m.agent_id}]: {m.content}" for m in conversation_history[-8:]) \
         or "(No one has posted yet -- share your initial view.)"
     user_prompt = (
         f"{topic_context}\n\n"
@@ -32,7 +32,7 @@ def generate_agent_message(
         "Write your next message in this discussion."
     )
 
-    content = client.complete(system_prompt, user_prompt, temperature=0.9, max_tokens=120)
+    content = client.complete(system_prompt, user_prompt, temperature=0.9, max_tokens=150)
     return Message(agent_id=agent.agent_id, round_number=round_number, content=content)
 
 
