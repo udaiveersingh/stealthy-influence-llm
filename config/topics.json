@@ -2,18 +2,51 @@
   "topics": [
     {
       "topic_id": "remote_work",
+      "category": "social_lifestyle",
       "prompt_context": "The topic under discussion is: 'Companies should require employees to return to the office full-time, rather than allowing remote or hybrid work.'",
       "stance_question": "On a scale from -1 (strongly disagree, companies should NOT require full-time office return) to +1 (strongly agree, companies SHOULD require full-time office return), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
     },
     {
       "topic_id": "ai_regulation",
+      "category": "technology_policy",
       "prompt_context": "The topic under discussion is: 'Governments should heavily regulate the development of advanced AI systems, even if it slows down innovation.'",
       "stance_question": "On a scale from -1 (strongly disagree, AI should NOT be heavily regulated) to +1 (strongly agree, AI SHOULD be heavily regulated), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
     },
     {
       "topic_id": "college_value",
+      "category": "education",
       "prompt_context": "The topic under discussion is: 'A four-year college degree is still worth the time and money for most young people today.'",
       "stance_question": "On a scale from -1 (strongly disagree, college is NOT worth it) to +1 (strongly agree, college IS worth it), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "free_speech_harm",
+      "category": "human_values",
+      "prompt_context": "The topic under discussion is: 'Platforms and institutions should prioritize preventing potentially harmful speech over protecting maximal free expression.'",
+      "stance_question": "On a scale from -1 (strongly disagree, free expression should be prioritized) to +1 (strongly agree, preventing harm should be prioritized), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "traditional_family_roles",
+      "category": "relationships_society",
+      "prompt_context": "The topic under discussion is: 'Society is better off when traditional family roles and structures are maintained rather than continually redefined.'",
+      "stance_question": "On a scale from -1 (strongly disagree, evolving family structures are good) to +1 (strongly agree, traditional roles should be maintained), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "religion_public_life",
+      "category": "religion_belief",
+      "prompt_context": "The topic under discussion is: 'Religious values should play a significant role in shaping public policy and law.'",
+      "stance_question": "On a scale from -1 (strongly disagree, public policy should be secular) to +1 (strongly agree, religious values should shape policy), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "centralized_governance",
+      "category": "politics_governance",
+      "prompt_context": "The topic under discussion is: 'Centralized national government control produces better outcomes for society than decentralized, local decision-making.'",
+      "stance_question": "On a scale from -1 (strongly disagree, decentralized/local control is better) to +1 (strongly agree, centralized control is better), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
+    },
+    {
+      "topic_id": "individual_vs_collective",
+      "category": "ethics_morality",
+      "prompt_context": "The topic under discussion is: 'Individual freedom should take priority over collective welfare when the two are in conflict.'",
+      "stance_question": "On a scale from -1 (strongly disagree, collective welfare should take priority) to +1 (strongly agree, individual freedom should take priority), what is your current stance on this topic? Respond with a single number between -1 and 1, followed by one short sentence explaining why."
     }
   ]
 }
