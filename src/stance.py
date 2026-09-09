@@ -1,14 +1,28 @@
 """
 Stance elicitation: ask an agent (in persona) for its current numeric stance
 on a topic, given whatever conversation history it has seen so far.
+
+FIX (this version, root-caused via debug_stance_direction.py): the previous
+fallback -- "if no STANCE: marker found, grab the last number anywhere in
+the text" -- was unsafe. A real case: the model's completion got truncated
+mid-reasoning (350 tokens wasn't enough) right after it wrote out its OWN
+scale legend ("0: neutral/undecided"), and the fallback grabbed that "0" as
+if it were a real answer. This silently produced a wrong stance value that
+looked valid but wasn't -- and directly contradicted the agent's own
+conversation history.
+
+Fix: (1) raised max_tokens substantially, same reasoning as the message-
+generation fix -- this model's reasoning can run long and needs headroom to
+actually reach its answer. (2) REMOVED the unsafe fallback entirely: if no
+STANCE: marker is found, that's now treated as a parse failure and retried,
+not silently guessed at.
 """
 import re
 from src.llm_client import LLMClient
 from src.schemas import Agent, Message
 
 
-def _format_history(messages: list[Message], max_messages: int = 10) -> str:
-    """Render recent conversation history as plain text for the prompt."""
+def _format_history(messages: list, max_messages: int = 10) -> str:
     if not messages:
         return "(No conversation has happened yet.)"
     recent = messages[-max_messages:]
@@ -18,16 +32,24 @@ def _format_history(messages: list[Message], max_messages: int = 10) -> str:
 
 def _parse_stance_number(raw_text: str) -> float:
     """
-    Extract the first float-looking number in [-1, 1] from the model's response.
-    Raises ValueError if nothing parseable is found -- caller should retry.
+    Requires the explicit STANCE: <number> marker. Takes the LAST match if
+    there are multiple (a model can quote the marker back to itself mid-
+    reasoning before giving its real final answer).
+
+    Does NOT fall back to "any number in the text" -- that was proven unsafe:
+    it can grab a number from the model's own scale-legend explanation
+    (e.g. "0: neutral") rather than an actual chosen answer. If the marker
+    is genuinely absent (usually means truncation before the model reached
+    its answer), this raises ValueError so the caller retries with a fresh
+    sample instead of silently accepting a guessed value.
     """
-    match = re.search(r"-?\d*\.?\d+", raw_text)
-    if not match:
-        raise ValueError(f"No number found in response: {raw_text!r}")
-    value = float(match.group())
-    # Clamp defensively -- models occasionally drift outside the requested range.
-    value = max(-1.0, min(1.0, value))
-    return value
+    marker_matches = re.findall(r"STANCE:\s*(-?\d*\.?\d+)", raw_text, re.IGNORECASE)
+    if not marker_matches:
+        raise ValueError(
+            f"No STANCE: marker found (likely truncated before reaching an answer): {raw_text[-200:]!r}"
+        )
+    value = float(marker_matches[-1])
+    return max(-1.0, min(1.0, value))
 
 
 def elicit_stance(
@@ -35,32 +57,24 @@ def elicit_stance(
     agent: Agent,
     topic_context: str,
     stance_question: str,
-    conversation_history: list[Message],
+    conversation_history: list,
     max_retries: int = 2,
     num_samples: int = 2,
-) -> tuple[float, str]:
-    """
-    Returns (stance_value, raw_model_response_from_first_sample).
-
-    To reduce measurement noise, this draws `num_samples` independent stance
-    readings at low temperature and returns their mean. The raw text of the
-    first sample is returned alongside for logging/debugging purposes only --
-    the numeric value is what should be used downstream.
-
-    num_samples defaults to 2 (down from 3) to reduce token usage for
-    volume runs -- noise floor was ~0.05 at 3 samples; re-run noise_check.py
-    if you need to confirm 2 samples is still acceptable.
-    """
+) -> tuple:
     system_prompt = (
         f"{agent.persona_description}\n\n"
         "You are participating in a group discussion. Stay fully in character. "
-        "Always follow the requested response format exactly. Be extremely brief."
+        "Do not show any reasoning, thinking process, or meta-commentary -- respond "
+        "with only the requested final answer, nothing else."
     )
     history_text = _format_history(conversation_history)
     user_prompt = (
         f"{topic_context}\n\n"
         f"Conversation so far:\n{history_text}\n\n"
-        f"{stance_question} Keep your explanation to under 15 words."
+        f"{stance_question}\n\n"
+        "Respond in EXACTLY this format, with nothing before or after it:\n"
+        "STANCE: <number between -1 and 1>\n"
+        "REASON: <one short sentence, under 15 words>"
     )
 
     samples = []
@@ -68,9 +82,11 @@ def elicit_stance(
     for i in range(num_samples):
         last_error = None
         for attempt in range(max_retries + 1):
-            # Low temperature: this is a measurement instrument, not creative
-            # writing -- we want consistency, not variety, from each single draw.
-            raw = client.complete(system_prompt, user_prompt, temperature=0.3, max_tokens=150)
+            # Raised from 350 -> 1200: same root cause as the message-generation
+            # fix -- this model's reasoning can run long, and needs enough
+            # headroom to actually reach the STANCE: line, not just explain
+            # the scale and get cut off.
+            raw = client.complete(system_prompt, user_prompt, temperature=0.3, max_tokens=1200)
             try:
                 value = _parse_stance_number(raw)
                 samples.append(value)
@@ -79,6 +95,8 @@ def elicit_stance(
                 break
             except ValueError as e:
                 last_error = e
+                print(f"    [stance retry {attempt+1}/{max_retries+1}] {agent.agent_id}: "
+                      f"{e}")
                 continue
         else:
             raise RuntimeError(
@@ -88,3 +106,15 @@ def elicit_stance(
 
     mean_value = sum(samples) / len(samples)
     return mean_value, first_raw
+
+
+def get_initial_stance(
+    client: LLMClient,
+    agent: Agent,
+    topic_context: str,
+    stance_question: str,
+    frozen_value: float = None,
+) -> tuple:
+    if frozen_value is not None:
+        return frozen_value, f"(frozen initial stance: {frozen_value})"
+    return elicit_stance(client, agent, topic_context, stance_question, [])
