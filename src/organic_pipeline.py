@@ -14,6 +14,10 @@ FIXES applied in this version:
    gpt-oss vs. Nemotron data can never be silently mixed up during analysis.
 4. Uses synthetic sim_time (round/slot index) instead of relying solely on
    wall-clock timestamps for message ordering.
+5. pin_first_round threaded through to run_organic_round. MUST be set the
+   same way here as in the adversarial condition's run_adversarial_round --
+   otherwise the two conditions get different amounts of context, which is
+   a confound independent of anything the attacker does.
 """
 import json
 import os
@@ -51,6 +55,7 @@ def run_organic_trial(
     num_rounds: int = 3,
     seed: int = None,
     frozen_initial_stances: dict = None,
+    pin_first_round: bool = False,
 ) -> TrialRecord:
     if seed is not None:
         random.seed(seed)
@@ -81,6 +86,7 @@ def run_organic_trial(
         new_messages = run_organic_round(
             client, agents, topic["prompt_context"], all_messages,
             round_number=round_num, sim_time_start=(round_num - 1) * 100,
+            pin_first_round=pin_first_round,
         )
         all_messages.extend(new_messages)
     trial.messages = all_messages
@@ -130,7 +136,9 @@ if __name__ == "__main__":
     agents = load_agents()  # now includes all 8 by default
     topic = load_topic("remote_work")
 
-    trial = run_organic_trial(client, agents, topic, num_rounds=3, seed=42)
+    # pin_first_round=True to match pilot_demo.py's adversarial trials --
+    # change both together if you ever change one.
+    trial = run_organic_trial(client, agents, topic, num_rounds=3, seed=42, pin_first_round=True)
     avg_shift = summarize_trial(trial)
     path = save_trial(trial)
     print(f"\nSaved trial to: {path}")
