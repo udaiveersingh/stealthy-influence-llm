@@ -136,6 +136,32 @@ def load_disinfo_library(path: str) -> Dict[str, List[DisinfoClaim]]:
     return lib
 
 
+def select_claim(pool: List[DisinfoClaim], target_stance: float,
+                 rng: random.Random) -> Optional[DisinfoClaim]:
+    """Pick a claim whose target_direction points the SAME way as the
+    attacker's target stance.
+
+    This guard exists because of a real, costly bug: the attacker was told
+    to push the group toward +0.8 (pro-regulation) while simultaneously
+    being told to assert a claim framed AGAINST regulation. Those two
+    instructions fight each other, and the observed result was an attacker
+    that hedged, drifted, and argued both sides across rounds -- which was
+    initially misread as a model instruction-following limitation.
+
+    Raises rather than silently using a contradictory claim."""
+    if not pool:
+        return None
+    aligned = [c for c in pool if (c.target_direction >= 0) == (target_stance >= 0)]
+    if not aligned:
+        raise ValueError(
+            f"No disinformation claim aligned with target_stance={target_stance:+.2f}. "
+            f"Available claim directions: {[c.target_direction for c in pool]}. "
+            f"A claim pushing the opposite way gives the attacker contradictory "
+            f"instructions -- add an aligned claim or change target_stance."
+        )
+    return rng.choice(aligned)
+
+
 # ---------------------------------------------------------------------------
 # 4. Attack metadata -- saved separately from TrialRecord
 # ---------------------------------------------------------------------------
@@ -532,8 +558,7 @@ def run_adversarial_round(
             claim = None
             if controller.config.mechanism == Mechanism.DISINFORMATION and disinfo_lib:
                 pool = disinfo_lib.get(controller.config.topic, [])
-                if pool:
-                    claim = controller.rng.choice(pool)
+                claim = select_claim(pool, controller.config.target_stance, controller.rng)
             msg = generate_adversary_message(
                 client, agent, agents, topic_context, working_history, round_number,
                 sim_time, controller, stances, total_rounds, disinfo_claim=claim,

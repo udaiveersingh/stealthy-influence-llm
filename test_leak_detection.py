@@ -48,6 +48,15 @@ CASES = [
      "POST for example -",
      True),
 
+    ("intraword repetition concatenated into single tokens",
+     "When ideally,ellsellsells benells started, health after VOCellsellsellsells the and "
+     "rigorously tested evaluation frameworks that adapt as capabilities advance, rather than "
+     "arbitrary boundaries that either choke progress or leave critical gaps unaddressed.",
+     True),
+    ("intraword repetition in a stance-elicitation leak",
+     "STANCEellsellsellsellsells deepellsellsellsellsellsellsellsellsellsellsells deepellsells deep,",
+     True),
+
     # --- Legitimate messages that must NOT be flagged ---
     ("persona label containing 'AI' must not trigger meta-commentary check",
      "As an AI skeptic, I'd argue that heavy regulation won't actually slow innovation—it'll "

@@ -179,12 +179,23 @@ def _has_glued_words(text: str) -> bool:
     return bool(re.search(r"\.[a-z]{2,}", text))
 
 
+def _has_intraword_repetition(text: str) -> bool:
+    """Flags a short substring repeated 3+ times INSIDE a single token --
+    e.g. 'ellsellsells', 'VOCellsellsellsells'. The per-word suffix check
+    in _has_excessive_repetition cannot see this: it counts each token's
+    suffix once, so 'ellsellsells' registers as a single 'ells'. Real
+    English words don't contain a 3-6 char unit repeated three times
+    (that would be a 9+ char run)."""
+    return bool(re.search(r"([a-zA-Z]{3,6})\1{2,}", text))
+
+
 def _is_placeholder_leak(text: str) -> bool:
     """
     Detects extraction failures: a literal quoted template leak, a
     suspiciously short fragment, leaked meta-commentary about the model's
     own process (not a real persona post), non-Latin gibberish,
-    ASCII decoding-glitch repetition, or a short fragment ending mid-thought.
+    ASCII decoding-glitch repetition (across words or inside a single
+    token), or a short fragment ending mid-thought.
     """
     lowered = text.lower()
     if "<your message>" in lowered or "<my message>" in lowered:
@@ -197,6 +208,8 @@ def _is_placeholder_leak(text: str) -> bool:
     if _is_gibberish(text):
         return True
     if _has_excessive_repetition(text):
+        return True
+    if _has_intraword_repetition(text):
         return True
     if _looks_truncated(text):
         return True
