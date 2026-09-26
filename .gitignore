@@ -219,3 +219,4 @@ __marimo__/
 
 # Trial logs / generated data
 logs/
+runs/

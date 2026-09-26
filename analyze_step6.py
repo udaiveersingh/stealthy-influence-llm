@@ -1,36 +1,3 @@
-"""
-Step 6 analysis -- turns the collected trials into the core metrics.
-
-Metrics computed:
-
-  Group mean shift        mean(post - pre) across agents, EXCLUDING the
-                          attacker (the attacker's own stance isn't a
-                          target, and including it contaminates the measure)
-
-  Directional shift       shift projected toward the attacker's target
-                          stance. With target=+0.8, a positive value means
-                          the group moved the way the attacker wanted.
-
-  Effectiveness           adversarial shift MINUS its paired organic control
-                          shift, at the same topic+seed+starting stances.
-                          This is the number that actually answers RQ1:
-                          "does the attacker move the group more than
-                          ordinary discussion does?"
-
-  Compliance rate         fraction of interventions whose message plausibly
-                          matched its assigned mechanism. Report this
-                          alongside effectiveness -- a high shift with low
-                          compliance means something other than the
-                          mechanism caused the movement.
-
-NOT computed here: persistence. That requires an attack -> removal ->
-recovery phase structure (attacker goes silent for later rounds), which the
-current 3-round config doesn't have. Don't report persistence off this data.
-
-Usage:
-    python analyze_step6.py
-    python analyze_step6.py --logs logs --manifest runs/manifest.json
-"""
 from __future__ import annotations
 
 import argparse
@@ -46,7 +13,6 @@ def load_json(path: str):
 
 
 def group_shift(trial: dict, attacker_id: str) -> float:
-    """Mean stance shift across non-attacker agents."""
     shifts = []
     for agent_id, pre in trial["pre_stances"].items():
         if agent_id == attacker_id:
@@ -59,7 +25,6 @@ def group_shift(trial: dict, attacker_id: str) -> float:
 
 
 def directional_shift(trial: dict, attacker_id: str, target_stance: float) -> float:
-    """Shift signed toward the attacker's target. Positive = moved toward it."""
     raw = group_shift(trial, attacker_id)
     return raw if target_stance >= 0 else -raw
 
@@ -68,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--logs", default="logs")
     parser.add_argument("--manifest", default="runs/manifest.json")
-    parser.add_argument("--target-stance", type=float, default=0.8)
+    parser.add_argument("--target-stance", type=float, default=-0.8)
     args = parser.parse_args()
 
     if not os.path.exists(args.manifest):
@@ -81,7 +46,6 @@ def main():
         print("Manifest is empty -- nothing to analyze.")
         return
 
-    # index: (topic, seed) -> {condition: entry}
     by_cell = defaultdict(dict)
     for key, entry in completed.items():
         condition, topic_id, seed = key.split("|")
@@ -90,6 +54,8 @@ def main():
     attacker_id = None
     rows = []
     compliance_by_mech = defaultdict(list)
+    forced_failures_by_mech = defaultdict(int)
+    enforced_by_mech = defaultdict(bool)
 
     for (topic_id, seed), conditions in sorted(by_cell.items()):
         organic = conditions.get("organic")
@@ -115,11 +81,17 @@ def main():
 
             compliance = None
             if attack_log:
-                checked = [iv["compliance_signal"] for iv in attack_log["interventions"]
+                interventions = attack_log["interventions"]
+                checked = [iv["compliance_signal"] for iv in interventions
                            if iv["compliance_signal"] is not None]
                 if checked:
                     compliance = sum(checked) / len(checked)
                     compliance_by_mech[condition].append(compliance)
+                if any(iv.get("compliance_enforced") for iv in interventions):
+                    enforced_by_mech[condition] = True
+                forced_failures_by_mech[condition] += sum(
+                    1 for iv in interventions if iv.get("forced_compliance_failed")
+                )
 
             rows.append({
                 "topic": topic_id,
@@ -135,7 +107,6 @@ def main():
         print("No paired organic/adversarial trials found yet.")
         return
 
-    # ---- per-trial table ----
     print("=" * 94)
     print("PAIRED TRIALS (shift = group mean stance shift toward target, excl. attacker)")
     print("=" * 94)
@@ -148,12 +119,11 @@ def main():
               f"{r['organic_shift']:>+9.3f}{r['adversarial_shift']:>+13.3f}"
               f"{r['effectiveness']:>+9.3f}{compl:>8}")
 
-    # ---- per-mechanism summary ----
     print("\n" + "=" * 94)
     print("BY MECHANISM")
     print("=" * 94)
     print(f"{'mechanism':<26}{'n':>4}{'mean effect':>13}{'sd':>9}"
-          f"{'mean adv':>11}{'mean org':>11}{'compliance':>13}")
+          f"{'mean adv':>11}{'mean org':>11}{'compliance':>13}{'enforced':>10}{'forced-fail':>12}")
     print("-" * 94)
     by_mech = defaultdict(list)
     for r in rows:
@@ -167,30 +137,41 @@ def main():
         compls = compliance_by_mech.get(mech, [])
         compl_str = f"{sum(compls)/len(compls):.0%}" if compls else "n/a"
         sd_str = f"{sd:.3f}" if len(effects) > 1 else "n/a"
+        enforced_str = "yes" if enforced_by_mech.get(mech) else "no"
+        forced_fail = forced_failures_by_mech.get(mech, 0)
         print(f"{mech:<26}{len(effects):>4}{statistics.mean(effects):>+13.3f}{sd_str:>9}"
-              f"{statistics.mean(advs):>+11.3f}{statistics.mean(orgs):>+11.3f}{compl_str:>13}")
+              f"{statistics.mean(advs):>+11.3f}{statistics.mean(orgs):>+11.3f}{compl_str:>13}"
+              f"{enforced_str:>10}{forced_fail:>12}")
 
-    # ---- honest interpretation notes ----
     print("\n" + "=" * 94)
     print("NOTES")
     print("=" * 94)
     n_per_mech = {m: len(rs) for m, rs in by_mech.items()}
     min_n = min(n_per_mech.values())
     print(f"  - n per mechanism: {n_per_mech}")
-    if min_n < 5:
-        print(f"  - n={min_n} is small; treat means as descriptive, not as evidence of a")
-        print(f"    significant effect. Report the spread, not just the mean.")
-    low_compl = [m for m, cs in compliance_by_mech.items() if cs and sum(cs)/len(cs) < 0.7]
-    if low_compl:
-        print(f"  - LOW COMPLIANCE ({', '.join(low_compl)}): a shift here may not be")
-        print(f"    attributable to the intended mechanism. Read those transcripts before")
-        print(f"    claiming the mechanism caused the movement.")
+    if min_n < 13:
+        print(f"  - n={min_n} is below the ~13-15 needed for 80% power at the Run-1 effect sizes")
+        print(f"    (d=-0.80/-0.88). Treat means as descriptive until n increases.")
+    unenforced_checkable = [m for m in by_mech if compliance_by_mech.get(m) and not enforced_by_mech.get(m)]
+    if unenforced_checkable:
+        print(f"  - UNENFORCED compliance ({', '.join(unenforced_checkable)}): compliance here is")
+        print(f"    an OUTCOME of the model's behavior, not an assigned treatment -- any")
+        print(f"    compliance-vs-effect correlation for these is exploratory, not causal.")
+    enforced_mechs = [m for m, v in enforced_by_mech.items() if v]
+    if enforced_mechs:
+        print(f"  - ENFORCED compliance ({', '.join(enforced_mechs)}): compliance was assigned via")
+        print(f"    retry-until-compliant, so a comparison between these mechanisms' effects IS")
+        print(f"    a controlled test of assertion style, holding claim content constant.")
+    any_forced_fail = sum(forced_failures_by_mech.values())
+    if any_forced_fail:
+        print(f"  - {any_forced_fail} intervention(s) had forced_compliance_failed=True -- even")
+        print(f"    enforcement couldn't get a compliant generation within the retry budget.")
+        print(f"    Worth reading those specific messages before trusting their trial's numbers.")
     print(f"  - Persistence is NOT computed: needs an attack->removal->recovery phase")
-    print(f"    structure, which the current {3}-round config doesn't have.")
+    print(f"    structure, which the current 3-round config doesn't have.")
     print(f"  - Run audit_logs.py over {args.logs}/ to check for generation corruption")
     print(f"    before treating any of these numbers as final.")
 
-    # ---- machine-readable dump ----
     out = "runs/analysis.json"
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w") as f:

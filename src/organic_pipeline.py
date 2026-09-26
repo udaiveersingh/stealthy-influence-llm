@@ -1,24 +1,3 @@
-"""
-Full organic baseline pipeline.
-
-FIXES applied in this version:
-1. 8-vs-8 population parity: load_agents() now INCLUDES the adversary agent
-   by default (it just behaves as an ordinary agent in the organic condition).
-   Previously it was excluded, giving organic trials 7 agents vs. 8 in future
-   adversarial trials -- a real confound. Pass exclude_adversary=True only if
-   you specifically need the old 7-agent behavior for some analysis.
-2. Frozen initial-stance support: pass frozen_initial_stances={agent_id: value}
-   to skip fresh pre-elicitation and start every agent from a fixed state --
-   needed for clean paired organic/adversarial comparisons later.
-3. Every TrialRecord now stamps model_provider/model_name/temperature, so
-   gpt-oss vs. Nemotron data can never be silently mixed up during analysis.
-4. Uses synthetic sim_time (round/slot index) instead of relying solely on
-   wall-clock timestamps for message ordering.
-5. pin_first_round threaded through to run_organic_round. MUST be set the
-   same way here as in the adversarial condition's run_adversarial_round --
-   otherwise the two conditions get different amounts of context, which is
-   a confound independent of anything the attacker does.
-"""
 import json
 import os
 import random
@@ -58,8 +37,13 @@ def run_organic_trial(
     frozen_initial_stances: dict = None,
     pin_first_round: bool = False,
 ) -> TrialRecord:
-    if seed is not None:
-        random.seed(seed)
+    # Per-trial RNG instance instead of global random.seed(). The global
+    # module is shared process-wide, so seeding it from a trial running
+    # concurrently with other trials (different seeds) would race and make
+    # every trial's shuffle order depend on scheduling, breaking
+    # reproducibility. A local instance is fully isolated per trial and safe
+    # to run from multiple threads at once.
+    rng = random.Random(seed) if seed is not None else random.Random()
 
     model_info = client.info()
     trial = TrialRecord(
@@ -69,7 +53,7 @@ def run_organic_trial(
         seed=seed if seed is not None else -1,
         model_provider=model_info["provider"],
         model_name=model_info["model"],
-        temperature=0.3,  # stance elicitation temperature; conversation uses 0.9 internally
+        temperature=0.3,
         frozen_initial_stances=frozen_initial_stances,
     )
 
@@ -85,7 +69,7 @@ def run_organic_trial(
         new_messages = run_organic_round(
             client, agents, topic["prompt_context"], all_messages,
             round_number=round_num, sim_time_start=(round_num - 1) * 100,
-            pin_first_round=pin_first_round,
+            pin_first_round=pin_first_round, rng=rng,
         )
         all_messages.extend(new_messages)
     trial.messages = all_messages
@@ -132,11 +116,9 @@ def summarize_trial(trial: TrialRecord):
 
 if __name__ == "__main__":
     client = LLMClient()
-    agents = load_agents()  # now includes all 8 by default
+    agents = load_agents()
     topic = load_topic("remote_work")
 
-    # pin_first_round=True to match pilot_demo.py's adversarial trials --
-    # change both together if you ever change one.
     trial = run_organic_trial(client, agents, topic, num_rounds=3, seed=42, pin_first_round=True)
     avg_shift = summarize_trial(trial)
     path = save_trial(trial)

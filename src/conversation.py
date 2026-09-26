@@ -1,24 +1,17 @@
-"""
-A single round of ordinary (non-adversarial) conversation.
-Each agent, in turn, sees recent history and posts one message reacting
-honestly per its persona.
-
-Status is observable via visible_status_label (shown inline to other agents).
-
-FIX (this version): placeholder/truncation detection now also catches
-suspiciously SHORT outputs (e.g. a single word like "Here"), not just literal
-"<message>" template leaks. Confirmed real failure mode: a genuine truncated
-fragment slipped through the previous detector because it didn't match the
-placeholder pattern, even though it was clearly not a real message.
-"""
 import random
 import re
 from src.llm_client import LLMClient
 from src.schemas import Agent, Message
 
 MAX_POST_LENGTH = 400
-MIN_POST_WORDS = 6  # raised from 4 -- a real "POST for example -" fragment (4 words)
-                     # was passing the old threshold undetected
+MIN_POST_WORDS = 6
+
+_META_COMMENTARY_PHRASES = (
+    "let me look at", "let me start", "i need to start from the beginning",
+    "i'll begin by", "as an ai language model", "as an ai assistant",
+    "as an ai developed by", "conversation history", "i'm not sure how to",
+    "let me think about", "looking at the conversation so far,",
+)
 
 
 def _agent_display_tag(agent: Agent) -> str:
@@ -31,15 +24,15 @@ def _build_tag_lookup(agents: list) -> dict:
     return {a.agent_id: _agent_display_tag(a) for a in agents}
 
 
+def _first_round_messages(messages: list) -> list:
+    if not messages:
+        return []
+    first_round = messages[0].round_number
+    return [m for m in messages if m.round_number == first_round]
+
+
 def _format_history_with_status(messages: list, tag_lookup: dict, max_messages: int = 8,
                                   pinned_prefix: list = None) -> str:
-    """
-    pinned_prefix: optional list of Message objects always shown first,
-    regardless of the rolling window -- e.g. round 1's messages, so an early
-    frame (including anything an attacker introduces) doesn't silently
-    disappear once the rolling window scrolls past it. Backward compatible:
-    omitting this argument (the default) reproduces the exact prior behavior.
-    """
     if not messages:
         return "(No one has posted yet -- share your initial view.)"
 
@@ -67,14 +60,6 @@ def _format_history_with_status(messages: list, tag_lookup: dict, max_messages: 
     return "\n".join(lines)
 
 
-def _first_round_messages(messages: list) -> list:
-    """Returns all messages from the earliest round present in the list."""
-    if not messages:
-        return []
-    first_round = messages[0].round_number
-    return [m for m in messages if m.round_number == first_round]
-
-
 def _extract_post(raw_text: str) -> str:
     matches = list(re.finditer(r"POST:\s*(.+)", raw_text, re.IGNORECASE))
     if matches:
@@ -84,9 +69,6 @@ def _extract_post(raw_text: str) -> str:
         non_empty_lines = [l.strip() for l in raw_text.strip().split("\n") if l.strip()]
         candidate = non_empty_lines[-1] if non_empty_lines else raw_text.strip()
 
-    # Strip any residual leading "POST:" left over when the model emits the
-    # marker twice on one line (e.g. "POST: POST: actual message") -- the
-    # greedy regex above only consumes the outer one.
     while True:
         stripped = re.sub(r"^POST:\s*", "", candidate, flags=re.IGNORECASE)
         if stripped == candidate:
@@ -99,18 +81,7 @@ def _extract_post(raw_text: str) -> str:
     return candidate
 
 
-_META_COMMENTARY_PHRASES = (
-    "let me look at", "let me start", "i need to start from the beginning",
-    "i'll begin by", "as an ai language model", "as an ai assistant",
-    "as an ai developed by", "conversation history", "i'm not sure how to",
-    "let me think about", "looking at the conversation so far,",
-)
-
-
 def _is_gibberish(text: str) -> bool:
-    """Flags text that's mostly non-alphabetic or mixes scripts erratically --
-    catches garbled/truncated completions that pass the word-count check
-    (e.g. 'функни, и 아니: Em ()b. " This: 1= două Is there the 1:1dm 0n8:')."""
     stripped = text.strip()
     if not stripped:
         return True
@@ -119,19 +90,13 @@ def _is_gibberish(text: str) -> bool:
         return True
     ascii_letters = sum(1 for c in stripped if c.isalpha() and c.isascii())
     non_ascii_letters = alpha_chars - ascii_letters
-    # a little non-ASCII is fine (accents, names); heavy mixing is not
     if alpha_chars > 0 and non_ascii_letters / alpha_chars > 0.15:
         return True
     return False
 
 
 def _has_excessive_repetition(text: str) -> bool:
-    """Flags decoding-glitch corruption that reads as real ASCII words but
-    isn't coherent language -- e.g. '...aminoells overtellsells inolesells
-    preparedells...ells' where a short fragment repeats abnormally often as
-    a suffix across many tokens. Purely ASCII, so the non-Latin gibberish
-    check in _is_gibberish doesn't catch it."""
-    words = [w.strip(".,!?;:\"'()") for w in text.lower().split()]
+    words = [w.strip(".,!?;:\"()") for w in text.lower().split()]
     words = [w for w in words if w]
     if len(words) < 6:
         return False
@@ -143,23 +108,38 @@ def _has_excessive_repetition(text: str) -> bool:
     if not suffix_counts:
         return False
     top_count = max(suffix_counts.values())
-    # Absolute floor catches garbled text mixed with a legitimate tail (a
-    # real case: 10 '...ells' repeats buried in an otherwise-coherent
-    # 48-word message diluted the relative ratio below its threshold).
-    # Legitimate long text tops out at 2-3 repeats of any given suffix.
     if top_count >= 6:
         return True
     return top_count >= max(4, int(len(words) * 0.3))
 
 
+def _has_intraword_repetition(text: str) -> bool:
+    return bool(re.search(r"([a-zA-Z]{3,6})\1{2,}", text))
+
+
+_DANGLING_LAST_WORDS = {
+    "and", "but", "or", "so", "because", "a", "an", "the", "to", "of", "with",
+    "that", "this", "which", "who", "is", "are", "was", "were", "in", "on",
+    "at", "for", "as", "by", "from", "not",
+}
+
+
 def _looks_truncated(text: str) -> bool:
-    """Flags text that doesn't end on real sentence-ending punctuation.
-    Previously this only fired for short fragments (<12 words), on the
-    assumption longer text was 'safe' -- a real case disproved that: a
-    genuine 14-word truncation ('...I believe the precautionary') slipped
-    through because of that length bypass. A trailing '...' is accepted
-    (our own MAX_POST_LENGTH clipping produces this deliberately, and it's
-    also a legitimate stylistic trailing-off)."""
+    """Flags text that ends mid-thought. Two regimes, calibrated against a
+    real false-positive found in production data: a coherent 41-word message
+    with no trailing period was flagged by an earlier, blanket version of
+    this rule ('must end in terminal punctuation or ...') purely because
+    models often don't bother with a final period in casual conversational
+    text -- that is a style choice, not corruption.
+
+    Short text (<15 words) still uses the strict rule: the real bug this
+    check exists for ('...I believe the precautionary', 14 words) only shows
+    up at short lengths, where a missing period is a much stronger signal of
+    an actual cutoff.
+
+    Longer text is only flagged if it ends on a word that's actually
+    dangling (a bare conjunction/preposition/article) or on loose
+    punctuation (dash, comma, colon) -- not merely for lacking a period."""
     stripped = text.strip()
     if not stripped:
         return True
@@ -167,36 +147,22 @@ def _looks_truncated(text: str) -> bool:
         return False
     if stripped[-1] in ".!?\"')":
         return False
-    return True
+    if stripped[-1] in "-—,:;":
+        return True
+
+    words = stripped.split()
+    if len(words) < 15:
+        return True
+
+    last_word = words[-1].lower().strip(",.;:!?")
+    return last_word in _DANGLING_LAST_WORDS
 
 
 def _has_glued_words(text: str) -> bool:
-    """Flags a period immediately followed by 2+ lowercase letters with no
-    space -- e.g. 'harm clearly.stating that heavy regulation...'. Real
-    prose always has a space after a sentence-ending period; this pattern
-    only shows up from a garbled/merged completion. The {2,} (not {1,})
-    excludes 'e.g.' / 'i.e.' style abbreviations."""
     return bool(re.search(r"\.[a-z]{2,}", text))
 
 
-def _has_intraword_repetition(text: str) -> bool:
-    """Flags a short substring repeated 3+ times INSIDE a single token --
-    e.g. 'ellsellsells', 'VOCellsellsellsells'. The per-word suffix check
-    in _has_excessive_repetition cannot see this: it counts each token's
-    suffix once, so 'ellsellsells' registers as a single 'ells'. Real
-    English words don't contain a 3-6 char unit repeated three times
-    (that would be a 9+ char run)."""
-    return bool(re.search(r"([a-zA-Z]{3,6})\1{2,}", text))
-
-
 def _is_placeholder_leak(text: str) -> bool:
-    """
-    Detects extraction failures: a literal quoted template leak, a
-    suspiciously short fragment, leaked meta-commentary about the model's
-    own process (not a real persona post), non-Latin gibberish,
-    ASCII decoding-glitch repetition (across words or inside a single
-    token), or a short fragment ending mid-thought.
-    """
     lowered = text.lower()
     if "<your message>" in lowered or "<my message>" in lowered:
         return True
@@ -277,10 +243,16 @@ def run_organic_round(
     shuffle_order: bool = True,
     sim_time_start: int = 0,
     pin_first_round: bool = False,
+    rng: random.Random = None,
 ) -> list:
+    """rng: pass a per-trial random.Random instance for thread-safe,
+    reproducible shuffling. Falls back to a fresh (non-reproducible) instance
+    if omitted -- never mutates the global random module state, so this is
+    safe to call from multiple threads/trials concurrently."""
+    rng = rng or random.Random()
     order = agents.copy()
     if shuffle_order:
-        random.shuffle(order)
+        rng.shuffle(order)
 
     new_messages = []
     working_history = conversation_history.copy()

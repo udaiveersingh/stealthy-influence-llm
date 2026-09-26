@@ -1,19 +1,3 @@
-"""
-Adversarial trial pipeline -- the direct sibling of organic_pipeline.py.
-
-Deliberately mirrors run_organic_trial() as closely as possible: same stance
-elicitation, same round count, same sim_time scheme, same TrialRecord shape.
-The ONLY differences are:
-  - run_adversarial_round() replaces run_organic_round()
-  - an AttackerController drives A8_ADVERSARY's hidden objective
-  - attack metadata is saved to a SEPARATE logs/{trial_id}_attack.json,
-    leaving TrialRecord's schema untouched (as schemas.py asks)
-
-Paired design: pass frozen_initial_stances taken from a matching organic
-trial's pre_stances so both conditions start from identical agent states.
-That is what makes the organic/adversarial comparison causal rather than
-just two samples from different starting points.
-"""
 import json
 import os
 import random
@@ -60,10 +44,13 @@ def run_adversarial_trial(
     frozen_initial_stances: dict = None,
     pin_first_round: bool = True,
     disinfo_lib: dict = None,
+    enforce_compliance: bool = False,
 ) -> tuple:
-    """Returns (TrialRecord, TrialLog). Save both -- see save_adversarial_trial."""
-    if seed is not None:
-        random.seed(seed)
+    # Per-trial RNG instance -- see the identical comment in organic_pipeline.
+    # AttackerController keeps its OWN separate random.Random(config.seed)
+    # instance for target/claim selection, so that part was already isolated;
+    # this instance only controls turn-order shuffling within a round.
+    rng = random.Random(seed) if seed is not None else random.Random()
 
     attacker_id = find_attacker_id(agents)
     high_status_id = find_high_status_id(agents)
@@ -90,6 +77,7 @@ def run_adversarial_trial(
         high_status_agent_id=high_status_id,
         topic=topic["topic_id"],
         seed=seed if seed is not None else -1,
+        enforce_compliance=enforce_compliance,
     )
     controller = AttackerController(config, agents, trial_id=trial.trial_id)
     controller.plan_rounds(num_rounds)
@@ -100,7 +88,6 @@ def run_adversarial_trial(
         frozen_initial_stances,
     )
 
-    # The attacker reads target stances from this dict as the trial proceeds.
     stances = dict(trial.pre_stances)
 
     all_messages = []
@@ -115,6 +102,7 @@ def run_adversarial_trial(
             disinfo_lib=disinfo_lib,
             sim_time_start=(round_num - 1) * 100,
             pin_first_round=pin_first_round,
+            rng=rng,
         )
         all_messages.extend(new_messages)
     trial.messages = all_messages
@@ -128,7 +116,6 @@ def run_adversarial_trial(
 
 
 def save_adversarial_trial(trial: TrialRecord, attack_log, log_dir: str = "logs") -> tuple:
-    """Saves the TrialRecord and its attack metadata as two sibling files."""
     os.makedirs(log_dir, exist_ok=True)
     trial_path = os.path.join(
         log_dir,
