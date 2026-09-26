@@ -27,6 +27,7 @@ import uuid
 from src.llm_client import LLMClient
 from src.schemas import Agent, TrialRecord
 from src.stance import elicit_stance, get_initial_stance
+from src.parallel_stance import get_initial_stances_parallel, elicit_stances_parallel
 from src.conversation import run_organic_round
 
 
@@ -72,13 +73,11 @@ def run_organic_trial(
         frozen_initial_stances=frozen_initial_stances,
     )
 
-    print(f"  [trial {trial.trial_id[:8]}] eliciting pre-stances...")
-    for agent in agents:
-        frozen_value = (frozen_initial_stances or {}).get(agent.agent_id)
-        value, _ = get_initial_stance(
-            client, agent, topic["prompt_context"], topic["stance_question"], frozen_value
-        )
-        trial.pre_stances[agent.agent_id] = value
+    print(f"  [trial {trial.trial_id[:8]}] eliciting pre-stances (parallel)...")
+    trial.pre_stances = get_initial_stances_parallel(
+        client, agents, topic["prompt_context"], topic["stance_question"],
+        frozen_initial_stances,
+    )
 
     all_messages = []
     for round_num in range(1, num_rounds + 1):
@@ -91,10 +90,10 @@ def run_organic_trial(
         all_messages.extend(new_messages)
     trial.messages = all_messages
 
-    print(f"  [trial {trial.trial_id[:8]}] eliciting post-stances...")
-    for agent in agents:
-        value, _ = elicit_stance(client, agent, topic["prompt_context"], topic["stance_question"], all_messages)
-        trial.post_stances[agent.agent_id] = value
+    print(f"  [trial {trial.trial_id[:8]}] eliciting post-stances (parallel)...")
+    trial.post_stances = elicit_stances_parallel(
+        client, agents, topic["prompt_context"], topic["stance_question"], all_messages,
+    )
 
     return trial
 
