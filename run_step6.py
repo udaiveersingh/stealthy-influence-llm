@@ -96,17 +96,29 @@ def record_completion(manifest: dict, key: str, entry: dict):
         manifest["completed"] = current["completed"]
 
 
-def key_for(condition: str, topic_id: str, seed: int) -> str:
-    return f"{condition}|{topic_id}|{seed}"
+def key_for(condition: str, topic_id: str, seed: int, removal_rounds: int = 0) -> str:
+    # Suffix only when removal_rounds>0, so existing keys (all attack-only
+    # runs so far) are completely unaffected -- a persistence run gets its
+    # own distinct key rather than silently colliding with (and being
+    # skipped in favor of) the shorter attack-only trial already on disk.
+    suffix = f"|removal{removal_rounds}" if removal_rounds > 0 else ""
+    return f"{condition}|{topic_id}|{seed}{suffix}"
 
 
-def estimate(topics, seeds, mechanisms, n_agents=8):
+def estimate(topics, seeds, mechanisms, n_agents=8, removal_rounds=0):
     per_trial = (n_agents * STANCE_SAMPLES) * 2 + (n_agents * NUM_ROUNDS)
+    per_adv_trial = per_trial
+    if removal_rounds:
+        per_adv_trial += (n_agents * removal_rounds) + (n_agents * STANCE_SAMPLES)
     n_organic = len(topics) * len(seeds)
     n_adv = len(topics) * len(seeds) * len(mechanisms)
     total_trials = n_organic + n_adv
-    total_calls = total_trials * per_trial
-    print(f"  Calls per trial: {per_trial}")
+    total_calls = n_organic * per_trial + n_adv * per_adv_trial
+    print(f"  Calls per organic trial: {per_trial}")
+    if removal_rounds:
+        print(f"  Calls per adversarial trial (with {removal_rounds} removal rounds): {per_adv_trial}")
+    else:
+        print(f"  Calls per adversarial trial: {per_adv_trial}")
     print(f"  Organic control trials: {n_organic}")
     print(f"  Adversarial trials:     {n_adv}")
     print(f"  Total trials: {total_trials}")
@@ -115,7 +127,7 @@ def estimate(topics, seeds, mechanisms, n_agents=8):
 
 
 def run_seed_cell(topic_id, topic, seed, mechanisms, agents, attacker_id,
-                   disinfo_lib, manifest):
+                   disinfo_lib, manifest, removal_rounds=0):
     """Everything for one (topic, seed): the organic control, then one
     adversarial trial per mechanism from its frozen pre-stances. Safe to run
     concurrently with other seed-cells -- see module docstring."""
@@ -139,12 +151,13 @@ def run_seed_cell(topic_id, topic, seed, mechanisms, agents, attacker_id,
         print(f"\n--- ORGANIC control | {topic_id} | seed={seed} -- already done ---")
 
     for mechanism in mechanisms:
-        adv_key = key_for(mechanism.value, topic_id, seed)
+        adv_key = key_for(mechanism.value, topic_id, seed, removal_rounds)
         if adv_key in manifest["completed"]:
             print(f"--- {mechanism.value} | {topic_id} | seed={seed} -- already done, skipping ---")
             continue
 
-        print(f"\n--- {mechanism.value.upper()} | {topic_id} | seed={seed} ---")
+        label = f"{mechanism.value.upper()}" + (f" (+{removal_rounds} removal rounds)" if removal_rounds else "")
+        print(f"\n--- {label} | {topic_id} | seed={seed} ---")
         trial, attack_log = run_adversarial_trial(
             LLMClient(provider="nvidia"), agents, topic,
             mechanism=mechanism,
@@ -152,7 +165,8 @@ def run_seed_cell(topic_id, topic, seed, mechanisms, agents, attacker_id,
             adaptivity=Adaptivity.STATIC,
             target_stance=TARGET_STANCE,
             attack_budget=ATTACK_BUDGET,
-            num_rounds=NUM_ROUNDS,
+            num_attack_rounds=NUM_ROUNDS,
+            num_removal_rounds=removal_rounds,
             seed=seed,
             frozen_initial_stances=frozen,
             pin_first_round=PIN_FIRST_ROUND,
@@ -167,6 +181,46 @@ def run_seed_cell(topic_id, topic, seed, mechanisms, agents, attacker_id,
         print(f"  saved -> {trial_path}")
 
 
+# ---------------------------------------------------------------------------
+# Failure handling. A previous run hit sustained 429s and every cell failed
+# within 8.7 minutes: each failed worker immediately picked up the NEXT seed and
+# burst again, then the script printed "RUN COMPLETE" with zero progress. Now a
+# failed cell backs off before the worker continues, and repeated consecutive
+# failures stop the whole run.
+# ---------------------------------------------------------------------------
+MAX_CONSECUTIVE_FAILURES = 3
+FAILURE_COOLDOWN_SECONDS = 90
+_failure_lock = threading.Lock()
+_consecutive_failures = 0
+_abort = threading.Event()
+
+
+def run_seed_cell_safe(*args, **kwargs):
+    """Returns 'ok', 'failed', or 'skipped' (run already aborted)."""
+    global _consecutive_failures
+    topic_id, seed = args[0], args[2]
+    if _abort.is_set():
+        return "skipped"
+    try:
+        run_seed_cell(*args, **kwargs)
+    except Exception as e:
+        with _failure_lock:
+            _consecutive_failures += 1
+            n = _consecutive_failures
+        print(f"\n!!! CELL FAILED: topic={topic_id} seed={seed}: {e}", file=sys.stderr)
+        if n >= MAX_CONSECUTIVE_FAILURES:
+            _abort.set()
+            print(f"\n!!! {n} consecutive cell failures -- stopping the run instead of "
+                  f"burning through the remaining seeds. Likely rate limiting: lower "
+                  f"LLM_MAX_RPM / --parallel, wait a few minutes, and re-run.", file=sys.stderr)
+        else:
+            time.sleep(FAILURE_COOLDOWN_SECONDS)
+        return "failed"
+    with _failure_lock:
+        _consecutive_failures = 0
+    return "ok"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--topics", nargs="+", default=DEFAULT_TOPICS)
@@ -176,6 +230,10 @@ def main():
     parser.add_argument("--claims", default="disinfo_claims_template.json")
     parser.add_argument("--parallel", type=int, default=1,
                         help="number of (topic, seed) cells to run concurrently")
+    parser.add_argument("--removal-rounds", type=int, default=0,
+                        help="rounds AFTER the attack where the attacker goes silent "
+                             "(genuinely just another agent, no hidden objective) -- "
+                             "0 (default) disables persistence measurement entirely")
     args = parser.parse_args()
 
     mechanisms = [Mechanism(m) for m in args.mechanisms]
@@ -183,7 +241,7 @@ def main():
     print("=" * 70)
     print("STEP 6 -- MAIN RUN")
     print("=" * 70)
-    estimate(args.topics, args.seeds, mechanisms)
+    estimate(args.topics, args.seeds, mechanisms, removal_rounds=args.removal_rounds)
     if args.estimate:
         return
 
@@ -210,36 +268,41 @@ def main():
     manifest = load_manifest()
     print(f"\nAgents: {len(agents)} (attacker={attacker_id})")
     print(f"Already completed (will skip): {len(manifest['completed'])} trials")
-    print(f"Parallelism: {args.parallel} concurrent seed-cell(s)\n")
+    print(f"Parallelism: {args.parallel} concurrent seed-cell(s)")
+    if args.removal_rounds:
+        print(f"Persistence: {args.removal_rounds} removal round(s) after the attack phase")
+    print()
 
     started = time.time()
     cells = [(topic_id, seed) for topic_id in args.topics for seed in args.seeds]
     topics_cache = {t: load_topic(t) for t in args.topics}
 
+    def _cell(topic_id, seed):
+        return run_seed_cell_safe(topic_id, topics_cache[topic_id], seed, mechanisms,
+                                  agents, attacker_id, disinfo_lib, manifest, args.removal_rounds)
+
+    results = []
     if args.parallel <= 1:
         for topic_id, seed in cells:
-            run_seed_cell(topic_id, topics_cache[topic_id], seed, mechanisms,
-                          agents, attacker_id, disinfo_lib, manifest)
+            results.append(_cell(topic_id, seed))
     else:
         with ThreadPoolExecutor(max_workers=args.parallel) as ex:
-            futures = {
-                ex.submit(run_seed_cell, topic_id, topics_cache[topic_id], seed,
-                         mechanisms, agents, attacker_id, disinfo_lib, manifest): (topic_id, seed)
-                for topic_id, seed in cells
-            }
-            for future in as_completed(futures):
-                topic_id, seed = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"\n!!! CELL FAILED: topic={topic_id} seed={seed}: {e}", file=sys.stderr)
+            results = list(ex.map(lambda c: _cell(*c), cells))
 
+    n_ok, n_failed, n_skipped = (results.count("ok"), results.count("failed"),
+                                 results.count("skipped"))
     elapsed = (time.time() - started) / 60
     manifest = load_manifest()
     print(f"\n{'='*70}")
-    print(f"RUN COMPLETE -- {len(manifest['completed'])} trials in manifest, "
-          f"{elapsed:.1f} min this session")
-    print(f"Next: python analyze_step6.py")
+    if n_failed or n_skipped:
+        tail = f", {n_skipped} not attempted (run stopped early)" if n_skipped else ""
+        print(f"RUN INCOMPLETE -- {n_ok} cells finished, {n_failed} failed{tail}")
+        print(f"{len(manifest['completed'])} trials in manifest, {elapsed:.1f} min this session")
+        print("Nothing partial was saved. Re-run the same command to resume; finished trials are skipped.")
+    else:
+        print(f"RUN COMPLETE -- {len(manifest['completed'])} trials in manifest, "
+              f"{elapsed:.1f} min this session")
+        print(f"Next: python analyze_step6.py")
     print(f"{'='*70}")
 
 

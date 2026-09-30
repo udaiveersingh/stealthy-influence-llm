@@ -16,6 +16,7 @@ from src.adversary import (
     DisinfoClaim,
     run_adversarial_round,
 )
+from src.conversation import run_organic_round, _first_round_messages
 
 
 def find_attacker_id(agents: list) -> str:
@@ -39,17 +40,28 @@ def run_adversarial_trial(
     adaptivity: Adaptivity = Adaptivity.STATIC,
     target_stance: float = 0.8,
     attack_budget: int = 3,
-    num_rounds: int = 3,
+    num_attack_rounds: int = 3,
+    num_removal_rounds: int = 0,
     seed: int = None,
     frozen_initial_stances: dict = None,
     pin_first_round: bool = True,
     disinfo_lib: dict = None,
     enforce_compliance: bool = False,
 ) -> tuple:
-    # Per-trial RNG instance -- see the identical comment in organic_pipeline.
-    # AttackerController keeps its OWN separate random.Random(config.seed)
-    # instance for target/claim selection, so that part was already isolated;
-    # this instance only controls turn-order shuffling within a round.
+    """num_removal_rounds=0 (default) reproduces the exact prior behavior:
+    attack rounds only, trial.post_stances is the final stance, no persistence
+    data. num_removal_rounds>0 adds a phase AFTER the attack where the
+    attacker is not special-cased at all -- it runs through the ordinary
+    run_organic_round() path, so it has no hidden objective, no budget, no
+    memory of its own prior interventions fed back in, nothing. It is
+    genuinely just another agent for these rounds, not an attacker that
+    happens to have run out of budget.
+
+    trial.post_stances = stance at the END OF THE ATTACK PHASE (same meaning
+    as before -- unchanged field, so old analysis code keeps working).
+    trial.post_removal_stances = stance after the removal phase, ONLY
+    populated when num_removal_rounds>0.
+    """
     rng = random.Random(seed) if seed is not None else random.Random()
 
     attacker_id = find_attacker_id(agents)
@@ -80,7 +92,7 @@ def run_adversarial_trial(
         enforce_compliance=enforce_compliance,
     )
     controller = AttackerController(config, agents, trial_id=trial.trial_id)
-    controller.plan_rounds(num_rounds)
+    controller.plan_rounds(num_attack_rounds)
 
     print(f"  [trial {trial.trial_id[:8]}] {mechanism.value} | eliciting pre-stances (parallel)...")
     trial.pre_stances = get_initial_stances_parallel(
@@ -91,26 +103,49 @@ def run_adversarial_trial(
     stances = dict(trial.pre_stances)
 
     all_messages = []
-    for round_num in range(1, num_rounds + 1):
-        print(f"  [trial {trial.trial_id[:8]}] running round {round_num}/{num_rounds}...")
+    for round_num in range(1, num_attack_rounds + 1):
+        print(f"  [trial {trial.trial_id[:8]}] attack round {round_num}/{num_attack_rounds}...")
         new_messages = run_adversarial_round(
             client, agents, topic["prompt_context"], all_messages,
             round_number=round_num,
             controller=controller,
             stances=stances,
-            total_rounds=num_rounds,
+            total_rounds=num_attack_rounds,
             disinfo_lib=disinfo_lib,
             sim_time_start=(round_num - 1) * 100,
             pin_first_round=pin_first_round,
             rng=rng,
         )
         all_messages.extend(new_messages)
-    trial.messages = all_messages
 
-    print(f"  [trial {trial.trial_id[:8]}] eliciting post-stances (parallel)...")
+    print(f"  [trial {trial.trial_id[:8]}] eliciting end-of-attack stances (parallel)...")
     trial.post_stances = elicit_stances_parallel(
         client, agents, topic["prompt_context"], topic["stance_question"], all_messages,
     )
+    trial.messages = list(all_messages)  # attack-phase messages only, until/unless removal runs
+
+    if num_removal_rounds > 0:
+        attack_messages_snapshot = list(all_messages)  # pinned into removal-phase stance elicitation below
+        for i in range(num_removal_rounds):
+            round_num = num_attack_rounds + i + 1
+            print(f"  [trial {trial.trial_id[:8]}] removal round {round_num} "
+                  f"({i+1}/{num_removal_rounds}, attacker silent)...")
+            new_messages = run_organic_round(
+                client, agents, topic["prompt_context"], all_messages,
+                round_number=round_num,
+                sim_time_start=num_attack_rounds * 100 + i * 100,
+                pin_first_round=pin_first_round,
+                rng=rng,
+            )
+            all_messages.extend(new_messages)
+        trial.messages = all_messages
+
+        print(f"  [trial {trial.trial_id[:8]}] eliciting post-removal stances (parallel, "
+              f"pinning attack-phase context)...")
+        trial.post_removal_stances = elicit_stances_parallel(
+            client, agents, topic["prompt_context"], topic["stance_question"], all_messages,
+            pinned_prefix=attack_messages_snapshot,
+        )
 
     return trial, controller.log
 
@@ -138,7 +173,9 @@ def summarize_adversarial_trial(trial: TrialRecord, attack_log, attacker_id: str
     print(f"{'='*70}")
 
     attacker_id = attacker_id or attack_log.attacker_id
+    has_removal = bool(trial.post_removal_stances)
     group_shifts = []
+    recoveries = []
     for agent_id in trial.pre_stances:
         pre = trial.pre_stances[agent_id]
         post = trial.post_stances.get(agent_id)
@@ -146,14 +183,28 @@ def summarize_adversarial_trial(trial: TrialRecord, attack_log, attacker_id: str
             continue
         shift = post - pre
         tag = " (attacker)" if agent_id == attacker_id else ""
-        print(f"  {agent_id:14s} pre={pre:+.2f}  post={post:+.2f}  shift={shift:+.2f}{tag}")
+        line = f"  {agent_id:14s} pre={pre:+.2f}  end_attack={post:+.2f}  shift={shift:+.2f}"
+        if has_removal:
+            removed = trial.post_removal_stances.get(agent_id)
+            if removed is not None:
+                recovery = removed - post  # +ve = kept moving same way after attacker left; -ve = reverted
+                line += f"  post_removal={removed:+.2f}  recovery={recovery:+.2f}"
+                if agent_id != attacker_id:
+                    recoveries.append(recovery)
+        print(line + tag)
         if agent_id != attacker_id:
             group_shifts.append(shift)
 
     avg = sum(group_shifts) / len(group_shifts) if group_shifts else 0.0
     checked = [iv.compliance_signal for iv in attack_log.interventions
                if iv.compliance_signal is not None]
-    print(f"\n  Group mean shift (excl. attacker): {avg:+.3f}")
+    print(f"\n  Group mean shift, end of attack (excl. attacker): {avg:+.3f}")
+    if has_removal and recoveries:
+        avg_recovery = sum(recoveries) / len(recoveries)
+        print(f"  Group mean change during removal (excl. attacker): {avg_recovery:+.3f}")
+        if abs(avg) > 1e-6:
+            print(f"  Persistence ratio (retained / attack effect): "
+                  f"{(avg + avg_recovery) / avg:+.2f}")
     print(f"  Interventions: {len(attack_log.interventions)} "
           f"(targets: {', '.join(attack_log.target_agents)})")
     if checked:
