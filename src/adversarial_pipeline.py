@@ -89,6 +89,8 @@ def run_adversarial_trial(
         high_status_agent_id=high_status_id,
         topic=topic["topic_id"],
         seed=seed if seed is not None else -1,
+        topic_context=topic["prompt_context"],
+        scale_description=topic["stance_question"],
         enforce_compliance=enforce_compliance,
     )
     controller = AttackerController(config, agents, trial_id=trial.trial_id)

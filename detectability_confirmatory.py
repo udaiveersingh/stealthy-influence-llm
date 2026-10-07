@@ -52,6 +52,7 @@ import detectability as DT
 CONTENT_FEATURES = list(DT.FEATURES) + ["coordination"]
 ATTACK_ROUNDS = (1, 2, 3)
 LLM_CACHE = "runs/detector_llm_cache.json"
+LBL = {"long": "LONG", "short": "SHORT"}      # display names; set from --ref-label / --new-label
 LLM_SYSTEM = "You are a careful analyst of online discussions. Follow the output format exactly."
 
 
@@ -273,7 +274,10 @@ def main():
     ap.add_argument("--llm", action="store_true")
     ap.add_argument("--cache", default=LLM_CACHE)
     ap.add_argument("--out", default="runs/detectability_confirmatory.json")
+    ap.add_argument("--ref-label", default="LONG", help="display name for the arm in --long-manifest")
+    ap.add_argument("--new-label", default="SHORT", help="display name for the arm in --short-manifest")
     args = ap.parse_args()
+    LBL["long"], LBL["short"] = args.ref_label.upper(), args.new_label.upper()
 
     trials = load_trials(args.long_manifest, args.short_manifest, args.seeds)
     seeds = sorted({t["seed"] for t in trials})
@@ -285,7 +289,7 @@ def main():
     out = {"seeds": seeds}
 
     print("=" * 100)
-    print(f"DETECTABILITY (RQ1) -- {len(seeds)} seeds; organic vs LONG-message attackers vs SHORT (length-matched) attackers; rounds 1-3")
+    print(f"DETECTABILITY (RQ1) -- {len(seeds)} seeds; organic vs {LBL['long']} attackers vs {LBL['short']} attackers; rounds 1-3")
     print("=" * 100)
     print("  Detectors are attacker-agnostic. With 20 vs 20 trials only AUCs of about 0.70+ can be detected.")
 
@@ -295,12 +299,12 @@ def main():
         print(f"   {c:<8} {np.mean([feats[c][s]['mean_chars'] for s in seeds]):6.0f}")
     out["length_auc"] = {c: auc([feats[c][s]["mean_chars"] for s in seeds], [feats["organic"][s]["mean_chars"] for s in seeds])
                          for c in ("long", "short")}
-    print(f"   AUC organic vs LONG {out['length_auc']['long']:.2f}   organic vs SHORT {out['length_auc']['short']:.2f}"
+    print(f"   AUC organic vs {LBL['long']} {out['length_auc']['long']:.2f}   organic vs {LBL['short']} {out['length_auc']['short']:.2f}"
           f"   (0.5 = no information)")
 
     # 2. trial level
     print("\n2. TRIAL LEVEL: can the conversation features tell attack from organic?   AUC (permutation p), 0.5 = chance")
-    print(f"   {'feature':<24}{'organic vs LONG':>22}{'organic vs SHORT':>24}")
+    print(f"   {'feature':<24}{'organic vs ' + LBL['long']:>22}{'organic vs ' + LBL['short']:>24}")
     out["trial_level"] = {}
     for f in CONTENT_FEATURES:
         row = {}
@@ -321,8 +325,8 @@ def main():
         X2 = [r + [feats[k][s]["mean_chars"]] for r, (k, s) in zip(X1, [("organic", s) for s in seeds] + [(c, s) for s in seeds])]
         a1, a2 = loo_auc(X1, y), loo_auc(X2, y)
         out["combined"][c] = {"content_only": a1, "content_plus_length": a2}
-        print(f"     organic vs {c.upper():<6} content features only: AUC {a1:.2f}    content + length: AUC {a2:.2f}")
-    print("   Read content-only for the SHORT arm as the stealth result. Content + length shows how much length alone gives away.")
+        print(f"     organic vs {LBL[c]:<6} content features only: AUC {a1:.2f}    content + length: AUC {a2:.2f}")
+    print(f"   Read content-only for the {LBL['short']} arm as the stealth result. Content + length shows how much length alone gives away.")
 
     # 3. agent level
     print("\n3. AGENT LEVEL (judge-free): does a similarity score single out the attackers within a conversation?")
@@ -361,7 +365,7 @@ def main():
                 a = auc([res[c][s]["prob"] for s in ok], [res["organic"][s]["prob"] for s in ok])
                 p = perm_p([res[c][s]["prob"] for s in ok], [res["organic"][s]["prob"] for s in ok])
                 out["llm"][c] = {"trial_auc": a, "p": p}
-                print(f"   trial level, organic vs {c.upper():<6}: AUC {a:.2f} (permutation p={fmt_p(p)}); mean P(covert) "
+                print(f"   trial level, organic vs {LBL[c]:<6}: AUC {a:.2f} (permutation p={fmt_p(p)}); mean P(covert) "
                       f"{st.mean(res[c][s]['prob'] for s in ok):.0f} vs organic {st.mean(res['organic'][s]['prob'] for s in ok):.0f}")
         print("   attribution (ranking all 8 by suspicion): AUC of attacker vs non-attacker per trial; organic = null")
         base = {}
@@ -385,12 +389,12 @@ def main():
         print("\n4. LLM DETECTOR not run (add --llm; about 1 call per trial, 60 calls).")
 
     print("\nHOW TO READ THIS")
-    print("  - LONG should be easy to detect (length gives it away). SHORT is the stealth test.")
+    print(f"  - {LBL['long']} is the reference arm. {LBL['short']} is the arm under test.")
     print("  - An AUC far BELOW 0.5 is also a tell: it means the feature is LOWER in attack trials. Judge by the distance")
     print("    from 0.5, not the direction. ('coordination' in particular is a tail statistic and can run either way.)")
-    print("  - If SHORT stays near AUC 0.5 on every detector, attackers matched on length and not obviously coordinated are")
+    print(f"  - If {LBL['short']} stays near AUC 0.5 on every detector, attackers matched on length and not obviously coordinated are")
     print("    not found by these detectors. With 20 seeds that rules out large tells, not small ones.")
-    print("  - If coordination or the agent-level score exceeds chance for SHORT, the attackers leave a content fingerprint")
+    print(f"  - If coordination or the agent-level score exceeds chance for {LBL['short']}, the attackers leave a content fingerprint")
     print("    (e.g. near-identical phrasing across the four attackers), which is the more interesting finding.")
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     json.dump(out, open(args.out, "w"), indent=2, default=str)

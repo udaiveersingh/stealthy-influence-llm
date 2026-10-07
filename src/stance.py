@@ -1,5 +1,6 @@
 import re
 from src.llm_client import LLMClient
+from src import labels
 from src.schemas import Agent, Message
 
 
@@ -14,16 +15,16 @@ def _format_history(messages: list, max_messages: int = 10, pinned_prefix: list 
     recent = messages[-max_messages:]
 
     if not pinned_prefix:
-        lines = [f"[{m.agent_id}]: {m.content}" for m in recent]
+        lines = [f"[{labels.display_id(m.agent_id)}]: {m.content}" for m in recent]
         return "\n".join(lines)
 
     pinned_ids = {id(m) for m in pinned_prefix}
     recent = [m for m in recent if id(m) not in pinned_ids]
     lines = ["[Earlier in this discussion:]"]
-    lines += [f"[{m.agent_id}]: {m.content}" for m in pinned_prefix]
+    lines += [f"[{labels.display_id(m.agent_id)}]: {m.content}" for m in pinned_prefix]
     if recent:
         lines.append("[More recently:]")
-        lines += [f"[{m.agent_id}]: {m.content}" for m in recent]
+        lines += [f"[{labels.display_id(m.agent_id)}]: {m.content}" for m in recent]
     return "\n".join(lines)
 
 

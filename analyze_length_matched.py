@@ -36,7 +36,10 @@ def main():
     ap.add_argument("--short-manifest", default="runs/confirmatory_short_manifest.json")
     ap.add_argument("--seeds", nargs="+", type=int, default=None)
     ap.add_argument("--out", default="runs/length_matched_analysis.json")
+    ap.add_argument("--ref-label", default="LONG", help="display name of the reference arm (--long-manifest)")
+    ap.add_argument("--new-label", default="SHORT", help="display name of the new arm (--short-manifest)")
     args = ap.parse_args()
+    REF, NEW = args.ref_label, args.new_label
 
     want = set(args.seeds) if args.seeds else None
     long_c = AC.load_cells(args.long_manifest, want)
@@ -63,7 +66,7 @@ def main():
 
     out = {"seeds": seeds}
     print("=" * 100)
-    print(f"LENGTH-MATCHED vs LONG-MESSAGE ATTACKERS -- 4 attackers of 8, {len(seeds)} seeds, target {meta0['target_stance']:+.2f}")
+    print(f"{NEW} vs {REF} ATTACKERS -- 4 attackers of 8, {len(seeds)} seeds, target {meta0['target_stance']:+.2f}")
     print("=" * 100)
     print(f"  seeds: {seeds}")
     print(f"  same attackers in both arms: {'yes' if same_attackers else 'NO -- check the manifests'}")
@@ -77,22 +80,22 @@ def main():
             print(AC.row(label, s_))
 
     block("1-2. EFFECT vs ORGANIC", [
-        ("SHORT, end of attack", [sht_e[s] - org_e[s] for s in seeds]),
-        ("SHORT, final", [sht_f[s] - org_f[s] for s in seeds]),
-        ("LONG,  end of attack", [lng_e[s] - org_e[s] for s in seeds]),
-        ("LONG,  final", [lng_f[s] - org_f[s] for s in seeds]),
+        (f"{NEW}, end of attack", [sht_e[s] - org_e[s] for s in seeds]),
+        (f"{NEW}, final", [sht_f[s] - org_f[s] for s in seeds]),
+        (f"{REF}, end of attack", [lng_e[s] - org_e[s] for s in seeds]),
+        (f"{REF}, final", [lng_f[s] - org_f[s] for s in seeds]),
     ])
-    block("3. SHORT minus LONG (negative = the effect shrank when messages were length-matched)", [
+    block(f"3. {NEW} minus {REF} (negative = the effect was smaller in {NEW})", [
         ("end of attack", [sht_e[s] - lng_e[s] for s in seeds]),
         ("final", [sht_f[s] - lng_f[s] for s in seeds]),
     ])
-    block("4. PERSISTENCE of the SHORT arm: decay = final effect minus end-of-attack effect", [
-        ("SHORT decay", [(sht_f[s] - org_f[s]) - (sht_e[s] - org_e[s]) for s in seeds]),
-        ("LONG decay (for comparison)", [(lng_f[s] - org_f[s]) - (lng_e[s] - org_e[s]) for s in seeds]),
+    block(f"4. PERSISTENCE of the {NEW} arm: decay = final effect minus end-of-attack effect", [
+        (f"{NEW} decay", [(sht_f[s] - org_f[s]) - (sht_e[s] - org_e[s]) for s in seeds]),
+        (f"{REF} decay (for comparison)", [(lng_f[s] - org_f[s]) - (lng_e[s] - org_e[s]) for s in seeds]),
     ])
 
     print("\n5. PER SEED (end of attack -> final; toward target; organic arm subtracted is NOT applied here)")
-    print(f"  {'seed':>4}  {'organic':>16}  {'LONG':>16}  {'SHORT':>16}")
+    print(f"  {'seed':>4}  {'organic':>16}  {REF:>16}  {NEW:>16}")
     for s in seeds:
         f = lambda e, g: f"{e[s]:+.2f} -> {g[s]:+.2f}"
         print(f"  {s:>4}  {f(org_e, org_f):>16}  {f(lng_e, lng_f):>16}  {f(sht_e, sht_f):>16}")
@@ -103,14 +106,14 @@ def main():
         nf = sum(1 for iv in ivs if iv.get("forced_length_failed"))
         nd = sum(1 for iv in ivs if iv.get("forced_direction_failed"))
         att = [iv.get("direction_attempts", 0) for iv in ivs]
-        print(f"\n6. SHORT arm generation: {len(ivs)} attacker messages; mean judge attempts {sum(att) / len(att):.2f}; "
+        print(f"\n6. {NEW} arm generation: {len(ivs)} attacker messages; mean judge attempts {sum(att) / len(att):.2f}; "
               f"forced direction failures {nd} ({100 * nd / len(ivs):.0f}%); forced length failures {nf} ({100 * nf / len(ivs):.0f}%)")
         print("   Run `python length_check.py --manifest runs/confirmatory_short_manifest.json` to confirm the lengths now match")
-        print("   (length AUC near 0.5). If they still do not, the SHORT arm is not a stealth test.")
+        print(f"   (length AUC near 0.5). If they still do not, the {NEW} arm is not a stealth test.")
 
     print("\nNOTES")
-    print("  - Positive = toward the target. LONG is the earlier direction-enforced 4-attacker arm on the same seeds.")
-    print("  - p-values are descriptive. The SHORT-vs-LONG contrast is within-seed, so organic noise cancels.")
+    print(f"  - Positive = toward the target. {REF} is the reference 4-attacker arm on the same seeds.")
+    print(f"  - p-values are descriptive. The {NEW}-vs-{REF} contrast is within-seed, so organic noise cancels.")
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2, default=str)
