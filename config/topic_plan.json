@@ -1,0 +1,54 @@
+{
+  "rule": "push against the group's natural lean; |start mean| < 0.1 -> -0.8",
+  "generated_from_trials": 85,
+  "topics": {
+    "ai_regulation": {
+      "mean_pre": 0.546,
+      "n_trials": 45,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "individual_vs_collective": {
+      "mean_pre": 0.429,
+      "n_trials": 5,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "college_value": {
+      "mean_pre": 0.419,
+      "n_trials": 10,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "traditional_family_roles": {
+      "mean_pre": 0.409,
+      "n_trials": 5,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "free_speech_harm": {
+      "mean_pre": 0.351,
+      "n_trials": 5,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "remote_work": {
+      "mean_pre": 0.304,
+      "n_trials": 5,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "centralized_governance": {
+      "mean_pre": 0.284,
+      "n_trials": 5,
+      "target": -0.8,
+      "side": "DISAGREE"
+    },
+    "religion_public_life": {
+      "mean_pre": 0.27,
+      "n_trials": 5,
+      "target": -0.8,
+      "side": "DISAGREE"
+    }
+  }
+}
