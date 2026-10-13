@@ -49,9 +49,22 @@ FAILURE_COOLDOWN_SECONDS = 90
 STANCE_SAMPLES = 2
 
 
+def ns_path(path):
+    """Model namespace. With RUN_NS=kimi every default path moves under runs/kimi/ and logs/kimi/, so a run on another model
+    can never skip, overwrite or borrow from the Nemotron manifests (they share keys like 'attack4|ai_regulation|7')."""
+    ns = os.environ.get("RUN_NS", "").strip()
+    if not ns or not path:
+        return path
+    for root in ("runs/", "logs/"):
+        if path.startswith(root):
+            return f"{root}{ns}/{path[len(root):]}"
+    return path
+
+
 def topic_path(path, topic):
     """The default topic keeps its existing file names. Every other topic gets its own manifest / log folder, because the
     analysis tools key trials by seed and arm only, so two topics in one manifest would silently overwrite each other."""
+    path = ns_path(path)
     if topic == DEFAULT_TOPIC or not path:
         return path
     return path.replace(".json", f"__{topic}.json") if path.endswith(".json") else f"{path}__{topic}"
@@ -200,7 +213,12 @@ def main():
         print("WARNING: LLM_MAX_RPM is not set in this terminal; using a safe default of 4 requests/minute for this run "
               "(the library default of 40 is far above what your account allows).")
 
-    from src.llm_client import LLMClient
+    from src.llm_client import LLMClient, DEFAULT_NVIDIA_MODEL
+    model_name = os.environ.get("NVIDIA_MODEL", DEFAULT_NVIDIA_MODEL)
+    if model_name != DEFAULT_NVIDIA_MODEL and not os.environ.get("RUN_NS", "").strip():
+        raise SystemExit(f"NVIDIA_MODEL is {model_name!r} but RUN_NS is not set. Set it (PowerShell: $env:RUN_NS=\"kimi\") so this run "
+                         f"writes to its own runs/ and logs/ folders instead of mixing with the Nemotron data. Nothing was run.")
+    print(f"MODEL: {model_name}   namespace: {os.environ.get('RUN_NS', '') or '(none -- original Nemotron paths)'}")
     agents, topic = load_agents(), load_topic(args.topic)
     manifest = load_manifest()
     if organic_from and os.path.exists(organic_from):
@@ -236,13 +254,15 @@ def main():
 
             print(f"\n--- {arm.upper()} | {args.topic} | seed {seed} ---")
             try:
+                client = LLMClient(provider="nvidia")
                 trial, meta = run_confirmatory_trial(
-                    LLMClient(provider="nvidia"), agents, topic, arm, seed,
+                    client, agents, topic, arm, seed,
                     frozen_initial_stances=frozen, attack_rounds=args.attack_rounds,
                     removal_rounds=args.removal_rounds, target_stance=args.target,
                     enforce_direction=(args.enforce_direction and arm != 'organic'),
                     match_length=(args.match_length and arm != 'organic'), length_limit=args.length_limit,
                     diversify_angles=(args.diversify_angles and arm != 'organic'))
+                meta["model"] = client.model
                 trial_path, meta_path = save_confirmatory_trial(trial, meta, _PATHS["log_dir"])
             except Exception as e:                       # noqa: BLE001 -- keep the run alive, count it
                 failed += 1
@@ -261,7 +281,7 @@ def main():
             manifest = load_manifest()
             manifest["completed"][key] = {
                 "trial_id": trial.trial_id, "arm": arm, "seed": seed, "topic_id": args.topic,
-                "path": trial_path, "meta_path": meta_path, "pre_stances": trial.pre_stances,
+                "path": trial_path, "meta_path": meta_path, "pre_stances": trial.pre_stances, "model": client.model,
                 "attackers": meta["attackers"], "measured_ids": meta["measured_ids"],
                 "enforce_direction": meta.get("enforce_direction", False), "match_length": meta.get("match_length", False), "diversify_angles": meta.get("diversify_angles", False),
             }

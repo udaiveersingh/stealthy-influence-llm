@@ -1,0 +1,126 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261012092603
+Username: LAPTOP-GAFKJ4DU\LENOVO
+RunAs User: LAPTOP-GAFKJ4DU\LENOVO
+Configuration Name: 
+Machine: LAPTOP-GAFKJ4DU (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -noexit -command try { . "c:\Microsoft VS Code\645f29cc31\resources\app\out\vs\workbench\contrib\terminal\common\scripts\shellIntegration.ps1" } catch {}
+Process ID: 22344
+PSVersion: 5.1.26100.9444
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9444
+BuildVersion: 10.0.26100.9444
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is gptoss_run_log.txt
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>$env:NVIDIA_MODEL = "openai/gpt-oss-20b"
+$env:RUN_NS = "gptoss"
+$env:LLM_EXTRA_BODY = "none"
+$env:LLM_MAX_RPM = "6"
+$env:LLM_MAX_CONCURRENCY = "2"
+$env:LLM_MIN_TOKENS = "1500"
+python run_confirmatory.py --arms organic --seeds 1
+python run_confirmatory.py --enforce-direction --match-length --arms attack4 --seeds 1
+
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>$env:NVIDIA_MODEL = "openai/gpt-oss-20b"
+$env:RUN_NS = "gptoss"
+$env:LLM_EXTRA_BODY = "none"
+$env:LLM_MAX_RPM = "6"
+$env:LLM_MAX_CONCURRENCY = "2"
+$env:LLM_MIN_TOKENS = "1500"
+python run_confirmatory.py --arms organic --seeds 2 3 4 5 6 7 8 9 10
+python run_confirmatory.py --enforce-direction --match-length --arms attack1 attack4 --seeds 1 2 3 4 5 6 7 8 9 10
+
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>Select-String -Path stance.py -Pattern "u2212"
+>> TerminatingError(Select-String): "Cannot find path 'C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence\stance.py' because it does not exist."
+Select-String : Cannot find path 'C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence\stance.py' because 
+it does not exist.
+At line:1 char:1
++ Select-String -Path stance.py -Pattern "u2212"
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Users\LENOVO...uence\stance.py:String) [Select-String], 
+ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.SelectStringCommand
+Select-String : Cannot find path 'C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence\stance.py' because it does not exist.
+At line:1 char:1
++ Select-String -Path stance.py -Pattern "u2212"
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Users\LENOVO...uence\stance.py:String) [Select-String], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.SelectStringCommand
+
+(base)
+]633;D;1]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>python -c "from src.stance import _parse_stance_number as p; print(p('STANCE: +0.6  \nREASON: x'), p('STANCE: -0.5'), p('STANCE: 1'))"
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>$env:NVIDIA_MODEL = "openai/gpt-oss-20b"
+$env:RUN_NS = "gptoss"
+$env:LLM_EXTRA_BODY = "none"
+$env:LLM_MAX_RPM = "6"
+$env:LLM_MAX_CONCURRENCY = "2"
+$env:LLM_MIN_TOKENS = "1500"
+python run_confirmatory.py --enforce-direction --match-length --arms attack4 --seeds 2
+python run_status.py
+python analyze_topics.py --kind short
+
+
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>Start-Transcript -Path gptoss_run_log2.txt -Append
+Transcript started, output file is gptoss_run_log2.txt
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>$env:NVIDIA_MODEL = "openai/gpt-oss-20b"
+$env:RUN_NS = "gptoss"
+$env:LLM_EXTRA_BODY = "none"
+$env:LLM_MAX_RPM = "6"
+$env:LLM_MAX_CONCURRENCY = "2"
+$env:LLM_MIN_TOKENS = "1500"
+python run_confirmatory.py --arms organic --seeds 11 12 13 14 15 16 17 18 19 20
+python run_confirmatory.py --enforce-direction --match-length --arms attack1 attack4 --seeds 11 12 13 14 15 16 17 18 19 20
+
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>$env:NVIDIA_MODEL = "openai/gpt-oss-20b"
+$env:RUN_NS = "gptoss"
+$env:LLM_EXTRA_BODY = "none"
+$env:LLM_MAX_RPM = "6"
+$env:LLM_MAX_CONCURRENCY = "2"
+$env:LLM_MIN_TOKENS = "1500"
+python run_confirmatory.py --enforce-direction --match-length --arms attack1 --seeds 14
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>python analyze_confirmatory.py --manifest runs/gptoss/confirmatory_short_manifest.json --out runs/gptoss/confirmatory_analysis_short_20.json --fig figures/gptoss_effects_20.png
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>python analyze_confirmatory.py --manifest runs/confirmatory_short_manifest.json --out runs/confirmatory_analysis_short_nemotron.json
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>python analyze_confirmatory.py --manifest runs/confirmatory_short_manifest.json --arms organic attack4 --organic-from runs/confirmatory_manifest.json --out runs/confirmatory_analysis_short_nemotron.json --fig figures/nemotron_short_effects.png
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>python run_confirmatory.py --estimate --seeds (1..20) --arms attack1 --match-length --enforce-direction
+python run_confirmatory.py --seeds (1..20) --arms attack1 --match-length --enforce-direction
+
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B

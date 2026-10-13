@@ -35,7 +35,16 @@ KINDS = [
 ]
 
 
+def _ns(path):
+    ns = os.environ.get("RUN_NS", "").strip()
+    for root in ("runs/", "logs/"):
+        if ns and path.startswith(root):
+            return f"{root}{ns}/{path[len(root):]}"
+    return path
+
+
 def topic_path(path, topic):
+    path = _ns(path)
     if topic == DEFAULT_TOPIC:
         return path
     return path.replace(".json", f"__{topic}.json") if path.endswith(".json") else f"{path}__{topic}"
@@ -72,6 +81,8 @@ def main():
     args = ap.parse_args()
 
     resume = []
+    if os.environ.get("RUN_NS"):
+        print(f"(namespace RUN_NS={os.environ['RUN_NS']}: reading runs/{os.environ['RUN_NS']}/ and logs/{os.environ['RUN_NS']}/)")
     damaged_all = []
     print("=" * 100)
     print("RUN STATUS (reads manifests and log files only; no API calls)")

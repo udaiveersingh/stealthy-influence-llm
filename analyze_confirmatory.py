@@ -106,15 +106,34 @@ def main():
     ap.add_argument("--manifest", default=MANIFEST_PATH)
     ap.add_argument("--seeds", nargs="+", type=int, default=None)
     ap.add_argument("--no-plot", action="store_true")
+    ap.add_argument("--arms", nargs="+", default=["organic", "attack1", "attack4"], choices=["organic", "attack1", "attack4"],
+                    help="arms that must be present. Use '--arms organic attack4' for a manifest with no 1-attacker arm "
+                         "(the Nemotron length-matched run only has attack4); the 1-attacker, dose and equivalence "
+                         "sections are then skipped.")
+    ap.add_argument("--organic-from", default=None,
+                    help="manifest to take the organic arm from when the main manifest has none for a seed "
+                         "(e.g. runs/confirmatory_manifest.json). Same seeds start from identical frozen pre-stances.")
     ap.add_argument("--out", default=OUT_PATH)
     ap.add_argument("--fig", default="figures/confirmatory_effects.png")
     args = ap.parse_args()
 
+    ARMS = args.arms
+    ATT = [a for a in ("attack1", "attack4") if a in ARMS]
+    if "organic" not in ARMS or not ATT:
+        raise SystemExit("--arms must include organic and at least one of attack1 / attack4")
     cells = load_cells(args.manifest, set(args.seeds) if args.seeds else None)
+    if args.organic_from:
+        for s_, c_ in load_cells(args.organic_from, set(args.seeds) if args.seeds else None).items():
+            if "organic" in c_ and s_ in cells and "organic" not in cells[s_]:
+                cells[s_]["organic"] = c_["organic"]
     seeds = sorted(s for s, c in cells.items() if all(a in c for a in ARMS))
     skipped = sorted(set(cells) - set(seeds))
     if len(seeds) < 3:
-        print(f"Only {len(seeds)} seeds have all three arms -- need at least 3.")
+        have = {a: sorted(s for s, c in cells.items() if a in c) for a in ("organic", "attack1", "attack4")}
+        print(f"Only {len(seeds)} seeds have all of {ARMS} -- need at least 3.")
+        print("  seeds present per arm in this manifest: " + "; ".join(f"{a}: {len(v)}" for a, v in have.items()))
+        print("  If attack1 is 0, this run has no 1-attacker arm: add  --arms organic attack4  (and  --organic-from "
+              "runs/confirmatory_manifest.json  if organic is 0).")
         return
 
     any_meta = cells[seeds[0]]["organic"]["meta"]
@@ -162,18 +181,21 @@ def main():
                               ("3. EFFECT vs ORGANIC, FINAL (after round 6, attackers silent since round 3)", fin, "effect_final")):
         print(f"\n{title}")
         print(HEADER)
-        for arm in ("attack1", "attack4"):
+        for arm in ATT:
             s_ = paired_summary(eff(table, arm)); out[key][arm] = s_
             print(row(arm + f" ({1 if arm == 'attack1' else 4} of 8)", s_))
 
     # 4. dose-response
-    print("\n4. DOSE-RESPONSE: attack4 minus attack1 (does adding attackers add effect?)")
-    print(HEADER)
     out["dose"] = {}
-    for label, table in (("end of attack", end), ("final", fin)):
-        s_ = paired_summary([table["attack4"][s] - table["attack1"][s] for s in seeds])
-        out["dose"][label] = s_
-        print(row(label, s_))
+    if len(ATT) == 2:
+        print("\n4. DOSE-RESPONSE: attack4 minus attack1 (does adding attackers add effect?)")
+        print(HEADER)
+        for label, table in (("end of attack", end), ("final", fin)):
+            s_ = paired_summary([table["attack4"][s] - table["attack1"][s] for s in seeds])
+            out["dose"][label] = s_
+            print(row(label, s_))
+    else:
+        print("\n4. DOSE-RESPONSE: skipped (this manifest has no 1-attacker arm)")
 
     # 5. persistence
     print("\n5. PERSISTENCE: does the effect survive three silent rounds?")
@@ -181,7 +203,7 @@ def main():
     print(HEADER)
     out["persistence"] = {}
     rng = random.Random(0)
-    for arm in ("attack1", "attack4"):
+    for arm in ATT:
         e_end, e_fin = eff(end, arm), eff(fin, arm)
         decay = paired_summary([f - e for e, f in zip(e_end, e_fin)])
         print(row(f"{arm} decay", decay))
@@ -205,33 +227,40 @@ def main():
         out["persistence"][arm] = {"decay": decay, "ratio": ratio, "ratio_ci": [lo, hi], "interpretable": ok}
 
     # 6. equivalence for the single attacker
-    print(f"\n6. EQUIVALENCE: is the 1-attacker effect within +/-{EQUIV_MARGIN:.2f} of zero? (TOST)")
     out["equivalence"] = {}
-    for label, table in (("end of attack", end), ("final", fin)):
+    if "attack1" in ATT:
+        print(f"\n6. EQUIVALENCE: is the 1-attacker effect within +/-{EQUIV_MARGIN:.2f} of zero? (TOST)")
+    else:
+        print("\n6. EQUIVALENCE: skipped (no 1-attacker arm)")
+    for label, table in ((("end of attack", end), ("final", fin)) if "attack1" in ATT else ()):
         d = eff(table, "attack1")
         t_ = tost(d, EQUIV_MARGIN)
         verdict = "EQUIVALENT (effect is smaller than the margin)" if t_["p"] < 0.05 else "not shown to be equivalent"
         print(f"  attack1, {label:<14} 90% CI [{t_['ci90_lo']:+.3f}, {t_['ci90_hi']:+.3f}]   TOST p = {fmt_p(t_['p'])}   {verdict}")
         out["equivalence"][label] = t_
-    print(f"  (margin +/-{EQUIV_MARGIN:.2f} = about one run-to-run noise SD seen in the pilot; a judgment call, stated up front)")
+    if "attack1" in ATT:
+        print(f"  (margin +/-{EQUIV_MARGIN:.2f} = about one run-to-run noise SD seen in the pilot; a judgment call, stated up front)")
 
     # 7. robustness
     print("\n7. ROBUSTNESS of the end-of-attack effect (attack4 / attack1)")
     out["robustness"] = {}
     for label, table in (("main: mean of 4 measured", end), ("excluding A7_STATUS (3 agents)", end_noA7),
                          ("median of measured agents", end_med)):
-        a4 = paired_summary(eff(table, "attack4")); a1 = paired_summary(eff(table, "attack1"))
-        out["robustness"][label] = {"attack4": a4, "attack1": a1}
-        print(f"  {label:<34} attack4 {a4['mean']:+.3f} [{a4['ci_lo']:+.3f},{a4['ci_hi']:+.3f}]   "
-              f"attack1 {a1['mean']:+.3f} [{a1['ci_lo']:+.3f},{a1['ci_hi']:+.3f}]")
+        out["robustness"][label] = {}
+        parts = []
+        for arm_ in ("attack4", "attack1"):
+            if arm_ in ATT:
+                x_ = paired_summary(eff(table, arm_)); out["robustness"][label][arm_] = x_
+                parts.append(f"{arm_} {x_['mean']:+.3f} [{x_['ci_lo']:+.3f},{x_['ci_hi']:+.3f}]")
+        print(f"  {label:<34} " + "   ".join(parts))
 
     # 8. per-seed table
     print("\n8. PER SEED (shift toward target of the measured agents)")
-    print(f"  {'seed':>4}  {'organic':>16}  {'attack1':>16}  {'attack4':>16}   attackers(attack4)")
+    print(f"  {'seed':>4}  " + "  ".join(f"{a:>16}" for a in ARMS) + ("   attackers(attack4)" if "attack4" in ARMS else ""))
     for s in seeds:
         f = lambda arm: f"{end[arm][s]:+.2f} -> {fin[arm][s]:+.2f}"
-        print(f"  {s:>4}  {f('organic'):>16}  {f('attack1'):>16}  {f('attack4'):>16}   "
-              f"{','.join(a.split('_')[0] for a in cells[s]['attack4']['meta']['attackers'])}")
+        tail = ("   " + ",".join(a.split('_')[0] for a in cells[s]['attack4']['meta']['attackers'])) if "attack4" in ARMS else ""
+        print(f"  {s:>4}  " + "  ".join(f"{f(a):>16}" for a in ARMS) + tail)
     print("  (each cell: end of attack -> final)")
 
     print("\n" + "=" * 100)
@@ -257,7 +286,7 @@ def main():
             import matplotlib.pyplot as plt
             fig, axes = plt.subplots(1, 2, figsize=(9, 4), sharey=True)
             for ax, (title, table) in zip(axes, (("End of attack (round 3)", end), ("Final (round 6)", fin))):
-                for j, arm in enumerate(("attack1", "attack4")):
+                for j, arm in enumerate(ATT):
                     d = eff(table, arm)
                     xs = [j + (random.Random(i).random() - 0.5) * 0.25 for i in range(len(d))]
                     ax.scatter(xs, d, alpha=0.55, s=22)
@@ -265,7 +294,7 @@ def main():
                     ax.errorbar([j], [s_["mean"]], yerr=[[s_["mean"] - s_["ci_lo"]], [s_["ci_hi"] - s_["mean"]]],
                                 fmt="D", color="black", capsize=4)
                 ax.axhline(0, color="grey", lw=0.8)
-                ax.set_xticks([0, 1]); ax.set_xticklabels(["1 attacker", "4 attackers"])
+                ax.set_xticks(range(len(ATT))); ax.set_xticklabels(["1 attacker" if a == "attack1" else "4 attackers" for a in ATT])
                 ax.set_title(title)
             axes[0].set_ylabel("effect vs organic (toward target = positive)")
             fig.tight_layout()

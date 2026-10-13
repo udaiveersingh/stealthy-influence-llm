@@ -29,6 +29,7 @@ that unrecoverable once the pipeline went parallel, and both are fixed here:
      blocked threads woke together and re-hit the limit together. Waits now
      get +/-50% random jitter to spread the retries out.
 """
+import json
 import os
 import random
 import threading
@@ -177,7 +178,19 @@ class LLMClient:
             kwargs["reasoning_effort"] = "low"
 
         if self.provider == "nvidia":
-            kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            # Default (Nemotron): switch thinking off. Other models may reject or ignore that field, so it can be
+            # overridden with LLM_EXTRA_BODY: a JSON object, or the word none to send nothing extra.
+            raw_eb = os.environ.get("LLM_EXTRA_BODY")
+            if raw_eb is None:
+                kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            elif raw_eb.strip().lower() not in ("", "none"):
+                kwargs["extra_body"] = json.loads(raw_eb)
+            # Models that always think (e.g. GLM) spend part of max_tokens on hidden reasoning, so a short cap
+            # (the judge uses 400) can return empty text. LLM_MIN_TOKENS raises every cap to at least that value.
+            # Unset = no change, so earlier Nemotron runs are reproduced exactly.
+            _floor = os.environ.get("LLM_MIN_TOKENS", "").strip()
+            if _floor:
+                kwargs["max_tokens"] = max(kwargs["max_tokens"], int(_floor))
             time.sleep(PROACTIVE_THROTTLE_SECONDS)
 
         last_exc = None
@@ -201,6 +214,19 @@ class LLMClient:
                     last_exc = e
                     continue
                 raise  # not a transient error, or retries exhausted -- propagate as before
+
+            # A malformed reply (HTTP 200 but no 'choices') used to crash with "'NoneType' object is not
+            # subscriptable" and kill the whole trial. Treat it like any other transient server glitch and retry.
+            if not getattr(response, "choices", None):
+                if attempt < RATE_LIMIT_MAX_RETRIES:
+                    base = RATE_LIMIT_BACKOFF_SECONDS[min(attempt, len(RATE_LIMIT_BACKOFF_SECONDS) - 1)]
+                    wait = base * random.uniform(1 - BACKOFF_JITTER, 1 + BACKOFF_JITTER)
+                    print(f"    [rate limit] malformed reply (no choices), waiting {wait:.0f}s before retry "
+                          f"({attempt + 1}/{RATE_LIMIT_MAX_RETRIES})...")
+                    time.sleep(wait)
+                    last_exc = RuntimeError("server returned a reply with no choices")
+                    continue
+                raise RuntimeError(f"Model '{self.model}' returned a reply with no choices after retries: {response}")
 
             content = response.choices[0].message.content
             if content is None or content.strip() == "":

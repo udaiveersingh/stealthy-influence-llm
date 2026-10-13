@@ -29,12 +29,12 @@ def _format_history(messages: list, max_messages: int = 10, pinned_prefix: list 
 
 
 def _parse_stance_number(raw_text: str) -> float:
-    marker_matches = re.findall(r"STANCE:\s*(-?\d*\.?\d+)", raw_text, re.IGNORECASE)
+    marker_matches = re.findall(r"STANCE:\s*([-+\u2212]?\d*\.?\d+)", raw_text, re.IGNORECASE)
     if not marker_matches:
         raise ValueError(
             f"No STANCE: marker found (likely truncated before reaching an answer): {raw_text[-200:]!r}"
         )
-    value = float(marker_matches[-1])
+    value = float(marker_matches[-1].replace("\u2212", "-"))
     return max(-1.0, min(1.0, value))
 
 

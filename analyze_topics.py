@@ -39,8 +39,15 @@ ALL_TOPICS = ["ai_regulation", "remote_work", "college_value", "free_speech_harm
               "religion_public_life", "centralized_governance", "individual_vs_collective"]
 
 
+def _ns(path):
+    ns = os.environ.get("RUN_NS", "").strip()
+    if ns and path.startswith("runs/"):
+        return f"runs/{ns}/{path[len('runs/'):]}"
+    return path
+
+
 def path_for(kind, topic):
-    base = KINDS[kind]
+    base = _ns(KINDS[kind])
     return base if topic == DEFAULT_TOPIC else base.replace(".json", f"__{topic}.json")
 
 
@@ -69,7 +76,7 @@ def main():
     ap.add_argument("--kind", choices=list(KINDS), default="diverse")
     ap.add_argument("--topics", nargs="+", default=None)
     ap.add_argument("--seeds", nargs="+", type=int, default=None)
-    ap.add_argument("--out", default="runs/topics_analysis.json")
+    ap.add_argument("--out", default=_ns("runs/topics_analysis.json"))
     ap.add_argument("--fig", default="figures/topics_forest.png")
     ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()
