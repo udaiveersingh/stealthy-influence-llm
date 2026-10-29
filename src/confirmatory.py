@@ -59,6 +59,12 @@ from src.direction_judge import make_direction_check
 ARMS = {"organic": 0, "attack1": 1, "attack4": 4}
 ATTACKER_POOL = ["A1", "A2", "A3", "A4", "A5", "A6", "A8_ADVERSARY"]   # A7_STATUS never attacks
 
+import os as _os, json as _json
+if _os.environ.get("SCALE_ATTACKER_POOL"):
+    ATTACKER_POOL = _os.environ["SCALE_ATTACKER_POOL"].split(",")
+if _os.environ.get("SCALE_ARMS"):
+    ARMS.update(_json.loads(_os.environ["SCALE_ARMS"]))
+
 # PERSONA SWEEP. One attacker per trial, and WHO it is is the experimental factor. The measured agents are fixed
 # (never an attacker in any persona arm) so every persona is judged on the same people:
 #   A3 = skeptical/contrarian   A6 = trusting/agreeable   A8 = ordinary, thoughtful participant

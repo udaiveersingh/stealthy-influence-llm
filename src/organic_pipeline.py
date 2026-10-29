@@ -10,7 +10,8 @@ from src.parallel_stance import get_initial_stances_parallel, elicit_stances_par
 from src.conversation import run_organic_round
 
 
-def load_agents(path="config/personas.json", exclude_adversary=False) -> list:
+def load_agents(path=None, exclude_adversary=False) -> list:
+    path = path or os.environ.get("PERSONAS_PATH", "config/personas.json")
     with open(path) as f:
         data = json.load(f)
     agents = [Agent(**a) for a in data["agents"]]
