@@ -28,6 +28,21 @@ that unrecoverable once the pipeline went parallel, and both are fixed here:
   2. NO JITTER. Every thread retried on the same 3/6/12/20/30s schedule, so
      blocked threads woke together and re-hit the limit together. Waits now
      get +/-50% random jitter to spread the retries out.
+
+Retry budget (raised): gpt-oss-20b on NVIDIA was observed clustering several
+InternalServerError/APIConnectionError failures back to back within a single
+round -- 6 retries at a 45s backoff ceiling (~2 min total budget) wasn't
+enough to ride that out, so whole trials were failing mid-round. Raised to
+10 retries with the backoff ceiling extended to 120s (~9 min total budget).
+Nemotron runs are unaffected except for surviving a longer outage if one
+occurs -- the schedule's early steps (3/6/12/20/30/45) are unchanged.
+
+Empty-content recovery: gpt-oss sometimes puts its real answer on the
+'reasoning' channel instead of 'content' when thinking isn't fully disabled
+(observed with LLM_EXTRA_BODY=none, i.e. no enable_thinking override sent).
+Previously this raised immediately and discarded the whole trial even though
+a valid POST:/STANCE: answer was sitting in reasoning_content. Now recovered
+before giving up.
 """
 import json
 import os
@@ -38,8 +53,8 @@ import time
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
 
-RATE_LIMIT_MAX_RETRIES = 6
-RATE_LIMIT_BACKOFF_SECONDS = [3, 6, 12, 20, 30, 45]  # increasing wait between retries
+RATE_LIMIT_MAX_RETRIES = 10
+RATE_LIMIT_BACKOFF_SECONDS = [3, 6, 12, 20, 30, 45, 60, 90, 120, 120]  # increasing wait between retries
 BACKOFF_JITTER = 0.5            # each wait is scaled by uniform(1-J, 1+J); 0 disables
 PROACTIVE_THROTTLE_SECONDS = 0.6
 
@@ -161,6 +176,21 @@ class LLMClient:
         name = type(exc).__name__.lower()
         return any(k in name for k in ("timeout", "connection", "internalserver", "serviceunavailable"))
 
+    @staticmethod
+    def _recover_from_reasoning(message) -> str | None:
+        """gpt-oss sometimes emits the real answer on the reasoning channel instead of
+        content (observed with LLM_EXTRA_BODY=none -- no enable_thinking override sent).
+        If a POST:/STANCE: marker is present in reasoning_content/reasoning, use it
+        instead of discarding the whole trial over an empty .content field."""
+        reasoning = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
+        if not reasoning:
+            return None
+        for marker in ("POST:", "STANCE:"):
+            idx = reasoning.rfind(marker)
+            if idx != -1:
+                return reasoning[idx:].strip()
+        return None
+
     def complete(self, system_prompt: str, user_prompt: str, temperature: float = 0.8, max_tokens: int = 400) -> str:
         """Single-turn completion. Returns the raw text response. Same interface regardless of provider."""
         kwargs = dict(
@@ -228,8 +258,13 @@ class LLMClient:
                     continue
                 raise RuntimeError(f"Model '{self.model}' returned a reply with no choices after retries: {response}")
 
-            content = response.choices[0].message.content
+            message = response.choices[0].message
+            content = message.content
             if content is None or content.strip() == "":
+                recovered = self._recover_from_reasoning(message)
+                if recovered:
+                    print(f"    [recovered] '{self.model}' answer was in reasoning_content, not content -- using it")
+                    return recovered
                 raise RuntimeError(
                     f"Model '{self.model}' (provider={self.provider}) returned empty content. "
                     f"Full response object: {response}"
