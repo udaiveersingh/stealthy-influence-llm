@@ -69,7 +69,12 @@ def elicit_stance(
     for i in range(num_samples):
         last_error = None
         for attempt in range(max_retries + 1):
-            raw = client.complete(system_prompt, user_prompt, temperature=0.3, max_tokens=1200)
+            try:
+                raw = client.complete(system_prompt, user_prompt, temperature=0.3, max_tokens=1200)
+            except RuntimeError as e:
+                last_error = e
+                print(f"    [stance retry {attempt+1}/{max_retries+1}] {agent.agent_id}: call failed ({e})")
+                continue
             try:
                 value = _parse_stance_number(raw)
                 samples.append(value)
@@ -81,10 +86,23 @@ def elicit_stance(
                 print(f"    [stance retry {attempt+1}/{max_retries+1}] {agent.agent_id}: {e}")
                 continue
         else:
-            raise RuntimeError(
-                f"Failed to parse a stance number for agent {agent.agent_id} "
-                f"after {max_retries + 1} attempts on sample {i+1}. Last error: {last_error}"
-            )
+            print(f"    [stance sample skipped] {agent.agent_id}: sample {i+1}/{num_samples} never parsed "
+                  f"after {max_retries + 1} attempts (last error: {last_error}); continuing with remaining samples")
+            continue
+
+    if not samples:
+        raise RuntimeError(
+            f"Failed to parse any stance number for agent {agent.agent_id} "
+            f"across {num_samples} samples. Last error: {last_error}"
+        )
+    mean_value = sum(samples) / len(samples)
+    return mean_value, first_raw
+
+    if not samples:
+        raise RuntimeError(
+            f"Failed to parse ANY stance sample for agent {agent.agent_id} across all {num_samples} samples. "
+            f"Last error: {last_error}"
+        )
 
     mean_value = sum(samples) / len(samples)
     return mean_value, first_raw

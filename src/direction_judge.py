@@ -69,7 +69,11 @@ def to_direction(label, target):
 def judge(client, statement, scale, messages):
     prompt = build_judge_prompt(statement, scale, messages)
     for _ in range(MAX_TRIES):
-        raw = client.complete(JUDGE_SYSTEM, prompt, temperature=0.0, max_tokens=400)
+        try:
+            raw = client.complete(JUDGE_SYSTEM, prompt, temperature=0.0, max_tokens=400)
+        except RuntimeError as e:
+            print(f"    [judge] call failed ({e}), retrying")
+            continue
         labels = parse_labels(raw, len(messages))
         if labels:
             return labels
