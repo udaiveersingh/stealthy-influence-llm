@@ -152,3 +152,34 @@ python run_confirmatory.py --seeds (1..20) --arms attack1 --match-length --enfor
 
 (base)
 ]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>git add .
+warning: in the working copy of 'src/llm_client.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/stance.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'gptoss_run_log.txt', LF will be replaced by CRLF the next time Git touches it
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>git commit -m "gpt os model 20 seed run"
+ create mode 100644 probe_model.py
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>git push
+
+(base)
+]633;D;0]633;A]633;P;Cwd=C:\x5cUsers\x5cLENOVO\x5cOneDrive - Plaksha University\x5cstealthy_influencePS C:\Users\LENOVO\OneDrive - Plaksha University\stealthy_influence> ]633;B
+PS>$env:MODEL_PROVIDER="nvidia"
+$env:LLM_MAX_RPM="2"
+
+python run_confirmatory.py --topic remote_work --target auto --arms organic --seeds 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+python run_confirmatory.py --topic remote_work --target auto --enforce-direction --match-length --arms attack1 attack4 --seeds 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+
+python run_confirmatory.py --topic college_value --target auto --arms organic --seeds 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+python run_confirmatory.py --topic college_value --target auto --enforce-direction --match-length --arms attack1 attack4 --seeds 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+  [organic s20 2714cd98] round 6/6 (silent)...
+    [rate limit] server error (InternalServerError), waiting 2s before retry (1/6)...
+    [rate limit] server error (InternalServerError), waiting 2s before retry (1/6)...
+  [organic s20 2714cd98] final stances...
+  saved -> logs/gptoss/confirmatory__remote_work\organic_remote_work_s20_2714cd98-23fb-4da9-8b3b-77618a409b5f.json
+
+======================================================================
+RUN COMPLETE -- 20 trials this session, 0 failed, 20 in manifest, 16.7 h
+======================================================================
