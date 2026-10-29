@@ -1,0 +1,2 @@
+
+!!! TRIAL FAILED: attack1 seed 19: 'charmap' codec can't encode character '\u2011' in position 91: character maps to <undefined>
