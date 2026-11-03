@@ -145,7 +145,7 @@ class LLMClient:
             # is invisible to the rate limiter below. All retrying happens in
             # complete() instead, where it is counted, throttled, and printed.
             self.client = OpenAI(
-                base_url="https://integrate.api.nvidia.com/v1",
+                base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
                 api_key=api_key,
                 max_retries=0,
             )
@@ -185,7 +185,7 @@ class LLMClient:
         reasoning = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
         if not reasoning:
             return None
-        for marker in ("POST:", "STANCE:"):
+        for marker in ("POST:", "STANCE:", "PROBABILITY:"):
             idx = reasoning.rfind(marker)
             if idx != -1:
                 return reasoning[idx:].strip()

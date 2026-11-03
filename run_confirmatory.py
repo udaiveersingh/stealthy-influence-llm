@@ -220,6 +220,11 @@ def main():
                          f"writes to its own runs/ and logs/ folders instead of mixing with the Nemotron data. Nothing was run.")
     print(f"MODEL: {model_name}   namespace: {os.environ.get('RUN_NS', '') or '(none -- original Nemotron paths)'}")
     agents, topic = load_agents(), load_topic(args.topic)
+    scale_vars = [v for v in ("PERSONAS_PATH", "SCALE_ATTACKER_POOL", "SCALE_ARMS") if os.environ.get(v, "").strip()]
+    if (scale_vars or len(agents) != 8) and not os.environ.get("RUN_NS", "").strip():
+        raise SystemExit(f"{len(agents)} agents loaded" + (f" and {', '.join(scale_vars)} set" if scale_vars else "")
+                         + " but RUN_NS is not set: scale-up settings would write into the main 8-agent manifests. "
+                         "Open a fresh PowerShell window, or set RUN_NS for a scale run. Nothing was run.")
     manifest = load_manifest()
     if organic_from and os.path.exists(organic_from):
         src_m = json.load(open(organic_from))["completed"]

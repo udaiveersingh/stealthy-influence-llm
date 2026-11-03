@@ -232,7 +232,12 @@ def run_llm(trials, cache_path):
             prompt, back, n = build_llm_prompt(t["trial"], t["seed"], t["cond"])
             res = None
             for _ in range(3):
-                res = parse_llm(client.complete(LLM_SYSTEM, prompt, temperature=0.0, max_tokens=300), back, n)
+                try:
+                    raw = client.complete(LLM_SYSTEM, prompt, temperature=0.0, max_tokens=2000)
+                except RuntimeError as e:
+                    print(f"    [skip] {e}")
+                    continue
+                res = parse_llm(raw, back, n)
                 if res:
                     break
             cache[f"{t['cond']}|{t['seed']}"] = res
