@@ -66,6 +66,9 @@ def main():
     ap.add_argument("--workers", type=int, default=int(os.environ.get("LLM_MAX_CONCURRENCY", "8")))
     ap.add_argument("--estimate", action="store_true")
     ap.add_argument("--mock", action="store_true", help="offline test with mock_llm_client (no model, random stances)")
+    ap.add_argument("--memory", choices=["short", "matched"], required=True,
+                    help="short = feed only (the first pilot); matched = round-1 feed pinned + own last posts + feed, "
+                         "the small-group memory rule. Required, so a run can never pick one up by default.")
     ap.add_argument("--allow-model", action="store_true", help="permit a model other than the default Nemotron")
     args = ap.parse_args()
 
@@ -125,6 +128,11 @@ def main():
         save_json(P["society"], soc_json)
 
     manifest = load_json(P["manifest"], {"completed": {}})
+    other = {e.get("memory", "short") for e in manifest["completed"].values()} - {args.memory}
+    if other:
+        raise SystemExit(f"{P['manifest']} already holds memory={other.pop()!r} runs; use another RUN_NS for "
+                         f"memory={args.memory!r} (e.g. society_mem_hpc). Nothing was run.")
+    print(f"memory rule: {args.memory}")
     started = time.time()
     for arm in arms:
         key = f"{arm}|{args.topic}|{args.seed}"
@@ -143,7 +151,7 @@ def main():
         ckpt = os.path.join(P["ckpt_dir"], f"{arm}_{args.topic}_s{args.seed}.pkl")
         trial, meta = run_society_trial(client, soc, topic, arm, args.seed, frozen_initial_stances=frozen,
                                         target_stance=args.target, length_limit=args.length_limit,
-                                        workers=args.workers, checkpoint_path=ckpt)
+                                        workers=args.workers, checkpoint_path=ckpt, memory=args.memory)
         meta["model"] = getattr(client, "model", model)
         meta["society_path"] = P["society"]
         os.makedirs(P["log_dir"], exist_ok=True)
@@ -155,7 +163,8 @@ def main():
         manifest["completed"][key] = {"trial_id": trial.trial_id, "arm": arm, "seed": args.seed,
                                       "topic_id": args.topic, "path": tp, "meta_path": mp,
                                       "pre_stances": trial.pre_stances, "model": meta["model"],
-                                      "attackers": meta["attackers"], "measured_ids": meta["measured_ids"]}
+                                      "attackers": meta["attackers"], "measured_ids": meta["measured_ids"],
+                                      "memory": args.memory}
         save_json(P["manifest"], manifest)
         os.remove(ckpt)
         print(f"  saved -> {tp}   ({(time.time() - t0) / 60:.1f} min)")

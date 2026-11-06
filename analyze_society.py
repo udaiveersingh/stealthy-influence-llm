@@ -104,7 +104,7 @@ def main():
             me, mf = st.fmean(e), st.fmean(f)
             pooled[arm]["end"].append(me); pooled[arm]["final"].append(mf)
             p_e = stats.ttest_1samp(e, 0).pvalue
-            print(f"  {arm:12s} ({len(meta['attackers'])} attackers)  end {fmt(e)}  p={p_e:.3g}")
+            print(f"  {arm:12s} ({len(meta['attackers'])} attackers, memory={meta.get('memory', 'short')})  end {fmt(e)}  p={p_e:.3g}")
             print(f"  {'':12s}  final {fmt(f)}  retained {(mf / me * 100) if abs(me) > 1e-9 else float('nan'):.0f}%")
             dist = hops(soc["adj"], meta["attackers"])
             for label, test in (("hop 1", lambda d: d == 1), ("hop 2", lambda d: d == 2), ("hop 3+", lambda d: d >= 3)):

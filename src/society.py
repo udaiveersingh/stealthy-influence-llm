@@ -24,7 +24,16 @@ within a round (synchronous rounds: round r posts are written from round r-1 fee
               before round 1 (frozen from the organic twin), after round 3 and after round 6; attackers
               length-matched and direction-enforced; nested attackers (the 2% set is a subset of the 10%
               set); effects measured on agents who are never attackers in any arm.
-  persistence differs from the small groups by design: there is no pinned round 1, so after the attack
+  memory      two rules, chosen per run (--memory) and recorded in every trial:
+                short    = the feed above only (own last post + connections' latest round). The first pilot.
+                matched  = the small-group rule carried over: what the agent first read (its round-1 feed,
+                           shown at round 2) stays pinned as "earlier in this discussion", plus its own last
+                           OWN_POSTS posts, plus the current feed. Small-group agents always saw round 1 pinned
+                           and their own earlier posts; this gives society agents the same kind of memory, so
+                           the two scales differ in size and network, not in what agents can remember.
+              Memory is a design variable, not a tuning knob: both rules are reported, and the rule is never
+              chosen per topic or after looking at a topic's result.
+  persistence under "short" differs from the small groups by design: there is no pinned round 1, so after the attack
               stops an agent only keeps what its connections (and its own last post) keep repeating.
               Persistence at society scale is therefore social contagion, which is the quantity of
               interest, and is reported separately from the small-group persistence numbers.
@@ -162,6 +171,32 @@ def _agent_index(aid):
     return int(aid[1:])
 
 
+OWN_POSTS = 3
+MEMORY_RULES = ("short", "matched")
+
+
+def history_for(aid, adj, state, seed, round_number, memory):
+    """(history, pinned) for agent `aid` before writing in `round_number` (or a probe at round_number)."""
+    current = feed_for(aid, adj, state["latest"], seed, round_number)
+    if memory == "short":
+        return current, None
+    pinned = list(state["first_feed"].get(aid, []))
+    pinned_ids = {id(m) for m in pinned}
+    current_ids = {id(m) for m in current}
+    own_prev = [m for m in state["own"].get(aid, [])[-OWN_POSTS:]
+                if id(m) not in current_ids and id(m) not in pinned_ids]
+    # The prompt builders show the pinned block in full but only the last 8-10 other messages, so own earlier posts
+    # go into the pinned "earlier in this discussion" block. They are display copies tagged round 1 because the
+    # builders pin by "same round as the first message"; the stored trial messages are untouched.
+    own_copies = [Message(agent_id=m.agent_id, round_number=1, content=m.content, sim_time=m.sim_time)
+                  for m in own_prev]
+    if not pinned and not own_copies:
+        return current, None
+    pinned_full = pinned + own_copies
+    middle = [m for m in current if id(m) not in pinned_ids]
+    return pinned_full + middle, pinned_full
+
+
 def feed_for(aid, adj, latest_by_agent, seed, round_number):
     """Own latest post + up to FEED_SIZE-1 posts sampled from connections' latest posts.
     Which connections are sampled depends only on (seed, round, agent), never on the arm."""
@@ -180,11 +215,11 @@ def feed_for(aid, adj, latest_by_agent, seed, round_number):
 # one society trial
 # ----------------------------------------------------------------------------------------------------
 
-def _safe_stance(client, agent, ctx, question, feed):
+def _safe_stance(client, agent, ctx, question, feed, pinned=None):
     """One stance reading; None (logged) instead of crashing a 512-agent round on one bad parse."""
     for attempt in range(2):
         try:
-            return elicit_stance(client, agent, ctx, question, feed)[0]
+            return elicit_stance(client, agent, ctx, question, feed, pinned_prefix=pinned)[0]
         except RuntimeError as e:
             print(f"    [stance failed {attempt + 1}/2] {agent.agent_id}: {str(e)[:120]}")
     return None
@@ -207,8 +242,10 @@ def _pmap(fn, items, workers):
 
 def run_society_trial(client, soc, topic, arm, seed, frozen_initial_stances=None,
                       attack_rounds=3, removal_rounds=3, target_stance=-0.8,
-                      length_limit=320, workers=64, checkpoint_path=None):
+                      length_limit=320, workers=64, checkpoint_path=None, memory="short"):
     """Returns (trial, meta). Checkpoints after every round when checkpoint_path is given, and resumes from it."""
+    if memory not in MEMORY_RULES:
+        raise ValueError(f"memory must be one of {MEMORY_RULES}")
     if arm not in ARM_FRACTIONS:
         raise ValueError(f"unknown arm {arm!r}; choose from {list(ARM_FRACTIONS)}")
     labels.NEUTRAL = True
@@ -250,7 +287,10 @@ def run_society_trial(client, soc, topic, arm, seed, frozen_initial_stances=None
             trial.pre_stances = dict(_pmap(lambda a: (a.agent_id, _safe_stance(client, a, ctx, question, [])),
                                            agents, workers))
         state = {"arm": arm, "topic_id": topic["topic_id"], "seed": seed, "round_done": 0,
-                 "trial": trial, "controllers": controllers, "latest": {}, "all_msgs": []}
+                 "trial": trial, "controllers": controllers, "latest": {}, "all_msgs": [],
+                 "memory": memory, "first_feed": {}, "own": {}}
+    if state.get("memory", "short") != memory:
+        raise SystemExit(f"checkpoint was written with memory={state.get('memory', 'short')!r}, not {memory!r}")
     trial, controllers = state["trial"], state["controllers"]
     for aid, ctl in controllers.items():                     # closures are not pickled; re-attach
         ctl.direction_check = make_direction_check(client, topic, target_stance)
@@ -279,23 +319,29 @@ def run_society_trial(client, soc, topic, arm, seed, frozen_initial_stances=None
             sorted(agents, key=lambda a: random.Random(seed * 7919 + r * 31 + _agent_index(a.agent_id)).random()))}
 
         def write(agent):
-            feed = feed_for(agent.agent_id, adj, latest, seed, r)
+            feed, pinned = history_for(agent.agent_id, adj, state, seed, r, memory)
+            pin = pinned is not None
             sim_time = (r - 1) * 1000 + slot[agent.agent_id]
             if attacking and agent.agent_id in controllers:
                 return _safe(lambda: generate_adversary_message(
                     client, agent, agents, ctx, feed, r, sim_time, controllers[agent.agent_id], stances_for_log,
-                    attack_rounds, disinfo_claim=None, pin_first_round=False), agent, r, sim_time)
+                    attack_rounds, disinfo_claim=None, pin_first_round=pin), agent, r, sim_time)
             return _safe(lambda: generate_agent_message(client, agent, agents, ctx, feed, r, sim_time,
-                                                        pin_first_round=False), agent, r, sim_time)
+                                                        pin_first_round=pin), agent, r, sim_time)
 
         new = _pmap(write, agents, workers)
         state["all_msgs"].extend(new)
         state["latest"] = {m.agent_id: m for m in new}
+        for m in new:
+            state["own"].setdefault(m.agent_id, []).append(m)
+        if r == 1:      # what each agent first reads: its round-1 feed, seen when writing round 2
+            state["first_feed"] = {a.agent_id: [m for m in feed_for(a.agent_id, adj, state["latest"], seed, 2)
+                                                if m.agent_id != a.agent_id] for a in agents}
 
         if r in (attack_rounds, total_rounds):
             print(f"  [{arm} s{seed}] stance probe after round {r}...")
-            feeds = {a.agent_id: feed_for(a.agent_id, adj, state["latest"], seed, r + 1) for a in agents}
-            st = _pmap(lambda a: (a.agent_id, _safe_stance(client, a, ctx, question, feeds[a.agent_id])),
+            feeds = {a.agent_id: history_for(a.agent_id, adj, state, seed, r + 1, memory) for a in agents}
+            st = _pmap(lambda a: (a.agent_id, _safe_stance(client, a, ctx, question, *feeds[a.agent_id])),
                        agents, workers)
             if r == attack_rounds:
                 trial.post_stances = dict(st)
@@ -310,7 +356,8 @@ def run_society_trial(client, soc, topic, arm, seed, frozen_initial_stances=None
         "attack_rounds": attack_rounds, "removal_rounds": removal_rounds, "enforce_direction": arm != "organic",
         "match_length": arm != "organic", "length_limit": length_limit,
         "attackers": attackers, "reference_attackers": reference, "measured_ids": measured,
-        "n_agents": len(agents), "feed_size": FEED_SIZE,
+        "n_agents": len(agents), "feed_size": FEED_SIZE, "memory": memory,
+        "own_posts_remembered": (OWN_POSTS if memory == "matched" else 0),
         "attacker_logs": {aid: c.log.to_dict() for aid, c in controllers.items()},
     }
     return trial, meta
