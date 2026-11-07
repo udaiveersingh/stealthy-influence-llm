@@ -59,6 +59,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--topic", required=True)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--seeds", type=int, nargs="+", default=None,
+                    help="several societies one after another (each seed = a new network, persona-intensity draw and "
+                         "attacker set); overrides --seed")
     ap.add_argument("--arms", nargs="+", default=ARM_ORDER, choices=ARM_ORDER)
     ap.add_argument("--n-variants", type=int, default=16, help="variants per base persona (16 x 32 = 512 agents)")
     ap.add_argument("--target", default="auto")
@@ -71,12 +74,18 @@ def main():
                          "the small-group memory rule. Required, so a run can never pick one up by default.")
     ap.add_argument("--allow-model", action="store_true", help="permit a model other than the default Nemotron")
     args = ap.parse_args()
+    for seed in (args.seeds or [args.seed]):
+        args.seed = seed
+        run_one(args)
+
+
+def run_one(args):
 
     bad = [v for v in ("PERSONAS_PATH", "SCALE_ATTACKER_POOL", "SCALE_ARMS") if os.environ.get(v, "").strip()]
     if bad:
         raise SystemExit(f"{', '.join(bad)} set in this shell: these belong to the 32-agent runs. Unset them "
                          f"(or open a fresh terminal). Nothing was run.")
-    if args.target == "auto":
+    if isinstance(args.target, str) and args.target == "auto":
         plan = json.load(open(TOPIC_PLAN_PATH))["topics"]
         args.target = float(plan[args.topic]["target"])
     else:
