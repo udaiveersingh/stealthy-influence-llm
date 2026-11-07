@@ -46,6 +46,8 @@ def load_cells(manifest_path, seeds=None):
     manifest = load_json(manifest_path)
     cells = defaultdict(dict)
     for key, e in manifest["completed"].items():
+        # manifests written on Windows store backslash paths; normalise so they load on Linux too
+        e = {**e, "path": e["path"].replace("\\", "/"), "meta_path": e["meta_path"].replace("\\", "/")}
         if not os.path.exists(e["path"]) or not os.path.exists(e["meta_path"]):
             continue
         if seeds and e["seed"] not in seeds:
