@@ -12,6 +12,9 @@ same judge afterwards proves nothing. A blind human label is the independent che
      which model wrote them, or which side the attackers were pushing.
      or label in the terminal, one message at a time (saves after every answer, resumes where you stopped):
        python human_validation.py label --sheet sheet_udai.csv
+  2b) the direction judge labels the SAME sheet (one message per call, same rubric as in the runs), so human-vs-judge
+     agreement can be scored on every row, organic ones included (needs the model server, e.g. on the HPC):
+       python human_validation.py judge --tag nemotron      # -> sheet_judge_nemotron.csv
   3) score:
        python human_validation.py score --sheets sheet_udai.csv sheet_rater2.csv
 
@@ -213,6 +216,30 @@ def label(args):
     print(f"\nAll {len(rows)} done -- saved in {args.sheet}. Send this file back for scoring.")
 
 
+def judge_sheet(args):
+    from src.direction_judge import judge
+    from src.llm_client import LLMClient
+    K = json.load(open(os.path.join(args.out_dir, "key.json")))["key"]
+    with open(os.path.join(args.out_dir, "sheet.csv"), newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    client = LLMClient(provider="nvidia")
+    cache = {}
+    for r in rows:
+        topic = K[r["item"]]["topic"]
+        if topic not in cache:
+            cache[topic] = statement_and_scale(load_topic(topic))
+        st_, sc = cache[topic]
+        lab = judge(client, st_, sc, [r["message"][:700]])
+        r["label"] = {"AGREE": "agree", "DISAGREE": "disagree", "NEITHER": "neither"}[lab[0]] if lab else "skip"
+        print(f"  [{r['item']}] {r['label']}")
+    out = os.path.join(args.out_dir, f"sheet_judge_{args.tag}.csv")
+    with open(out, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["item", "statement", "message", "label"], extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    print(f"wrote {out}")
+
+
 def read_sheet(path):
     out = {}
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -263,7 +290,7 @@ def score(args):
             print(rate(lambda x, t=t: x["source"] == "attack" and x["topic"] == t, f"  attacker, {t}"))
     if len(sheets) >= 2:
         names = list(sheets)
-        print("\nINTER-RATER AGREEMENT (3 categories: agree / disagree / neither)")
+        print("\nAGREEMENT BETWEEN SHEETS (3 categories: agree / disagree / neither; human-human and human-judge)")
         for i, a in enumerate(names):
             for b in names[i + 1:]:
                 k, po, n = kappa(sheets[a], sheets[b])
@@ -283,11 +310,14 @@ def main():
     lb = sub.add_parser("label")
     lb.add_argument("--sheet", required=True)
     lb.add_argument("--no-practice", action="store_true")
+    j = sub.add_parser("judge")
+    j.add_argument("--tag", required=True, help="name for the output sheet, e.g. the judge model")
+    j.add_argument("--out-dir", default=OUT_DIR)
     s = sub.add_parser("score")
     s.add_argument("--sheets", nargs="+", required=True)
     s.add_argument("--out-dir", default=OUT_DIR)
     args = ap.parse_args()
-    {"export": export, "label": label, "score": score}[args.cmd](args)
+    {"export": export, "label": label, "judge": judge_sheet, "score": score}[args.cmd](args)
 
 
 if __name__ == "__main__":
