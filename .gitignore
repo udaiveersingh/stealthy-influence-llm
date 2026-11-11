@@ -220,3 +220,13 @@ __marimo__/
 # Trial logs / generated data
 logs/
 runs/
+
+# Human-validation materials: the answer key and rater sheets stay out of the repo
+# until all raters have finished (raters must not see the key)
+results_hpc2/human_validation/
+sheet_*.csv
+key.json
+
+# Local archives and transfer bundles
+*.tgz
+*.tar.gz

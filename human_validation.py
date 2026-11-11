@@ -223,21 +223,43 @@ def judge_sheet(args):
     with open(os.path.join(args.out_dir, "sheet.csv"), newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     client = LLMClient(provider="nvidia")
-    cache = {}
+    out = os.path.join(args.out_dir, f"sheet_judge_{args.tag}.csv")
+    done = {}
+    if os.path.exists(out):                     # resume: keep every label already obtained
+        with open(out, newline="", encoding="utf-8-sig") as f:
+            done = {r["item"]: r["label"] for r in csv.DictReader(f) if r["label"] in ("agree", "disagree", "neither")}
+        print(f"resuming: {len(done)} of {len(rows)} already labelled in {out}")
+
+    def save():
+        with open(out + ".tmp", "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=["item", "statement", "message", "label"], extrasaction="ignore")
+            w.writeheader()
+            w.writerows(rows)
+        os.replace(out + ".tmp", out)
+
+    cache, failed = {}, 0
     for r in rows:
+        if r["item"] in done:
+            r["label"] = done[r["item"]]
+            continue
         topic = K[r["item"]]["topic"]
         if topic not in cache:
             cache[topic] = statement_and_scale(load_topic(topic))
         st_, sc = cache[topic]
-        lab = judge(client, st_, sc, [r["message"][:700]])
-        r["label"] = {"AGREE": "agree", "DISAGREE": "disagree", "NEITHER": "neither"}[lab[0]] if lab else "skip"
-        print(f"  [{r['item']}] {r['label']}")
-    out = os.path.join(args.out_dir, f"sheet_judge_{args.tag}.csv")
-    with open(out, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=["item", "statement", "message", "label"], extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
-    print(f"wrote {out}")
+        try:
+            lab = judge(client, st_, sc, [r["message"][:700]])
+        except Exception as e:                  # server down for this item: leave it blank, carry on, retry next run
+            print(f"  [{r['item']}] failed ({type(e).__name__}); left blank, rerun the same command to retry")
+            r["label"] = ""
+            failed += 1
+            save()
+            continue
+        r["label"] = {"AGREE": "agree", "DISAGREE": "disagree", "NEITHER": "neither"}[lab[0]] if lab else ""
+        print(f"  [{r['item']}] {r['label'] or 'unparsable, left blank'}")
+        save()
+    missing = sum(1 for r in rows if not r["label"])
+    print(f"wrote {out}  ({len(rows) - missing} labelled, {missing} blank"
+          + ("; rerun the same command to fill the blanks)" if missing else ")"))
 
 
 def read_sheet(path):
