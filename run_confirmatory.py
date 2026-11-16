@@ -152,11 +152,18 @@ def main():
     ap.add_argument("--manifest", default=None,
                     help="default runs/confirmatory_manifest.json, or runs/confirmatory_enf_manifest.json with --enforce-direction")
     ap.add_argument("--log-dir", default=None)
+    ap.add_argument("--no-pin", action="store_true",
+                    help="ablation: do NOT pin round 1 (writing and stance prompts see only the recent window). Applies to "
+                         "BOTH arms, so it needs its own organic twins: requires --manifest and --log-dir, never reuses organic runs.")
     ap.add_argument("--organic-from", default=None,
                     help="manifest to copy the organic-arm entries from (default with --enforce-direction: the unenforced manifest)")
     args = ap.parse_args()
 
     args.target = resolve_target(args.target, args.topic)
+    # New conditions must never write into the main manifests: same keys would be skipped as "already done".
+    if (args.no_pin or args.target > 0) and not (args.manifest and args.log_dir):
+        raise SystemExit("--no-pin and positive --target runs need their own --manifest and --log-dir "
+                         "(e.g. runs/<ns>/agree_manifest__<topic>.json logs/<ns>/agree__<topic>). Nothing was run.")
     if args.persona_sweep:
         args.enforce_direction = True
         args.match_length = True
@@ -186,6 +193,10 @@ def main():
     _PATHS["manifest"] = args.manifest or topic_path(default_manifest, args.topic)
     _PATHS["log_dir"] = args.log_dir or topic_path(default_logs, args.topic)
     organic_from = args.organic_from or (topic_path("runs/confirmatory_manifest.json", args.topic) if args.enforce_direction else None)
+    if args.no_pin and not args.organic_from:
+        organic_from = None          # pinned organic twins are not valid twins for the no-pin ablation
+    if organic_from == "none":
+        organic_from = None
     if args.arms is None:
         args.arms = ["attack4"] if (args.match_length or args.diversify_angles) else list(ARMS)
     if args.enforce_direction and os.path.abspath(_PATHS["manifest"]) in (os.path.abspath(topic_path("runs/confirmatory_manifest.json", args.topic)),):
@@ -266,7 +277,8 @@ def main():
                     removal_rounds=args.removal_rounds, target_stance=args.target,
                     enforce_direction=(args.enforce_direction and arm != 'organic'),
                     match_length=(args.match_length and arm != 'organic'), length_limit=args.length_limit,
-                    diversify_angles=(args.diversify_angles and arm != 'organic'))
+                    diversify_angles=(args.diversify_angles and arm != 'organic'),
+                    pin_first_round=not args.no_pin)
                 meta["model"] = client.model
                 trial_path, meta_path = save_confirmatory_trial(trial, meta, _PATHS["log_dir"])
             except Exception as e:                       # noqa: BLE001 -- keep the run alive, count it
@@ -289,6 +301,7 @@ def main():
                 "path": trial_path, "meta_path": meta_path, "pre_stances": trial.pre_stances, "model": client.model,
                 "attackers": meta["attackers"], "measured_ids": meta["measured_ids"],
                 "enforce_direction": meta.get("enforce_direction", False), "match_length": meta.get("match_length", False), "diversify_angles": meta.get("diversify_angles", False),
+                "pin_first_round": meta.get("pin_first_round", True), "target_stance": meta.get("target_stance"),
             }
             save_manifest(manifest)
             print(f"  saved -> {trial_path}")

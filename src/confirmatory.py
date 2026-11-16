@@ -300,19 +300,20 @@ def run_confirmatory_trial(client, agents, topic, arm: str, seed: int,
         if r == attack_rounds:
             print(f"  {tag} end-of-attack stances...")
             trial.post_stances = elicit_stances_parallel(
-                client, agents, ctx, question, msgs, pinned_prefix=_first_round_messages(msgs))
+                client, agents, ctx, question, msgs, pinned_prefix=(_first_round_messages(msgs) if pin_first_round else None))
 
     trial.messages = msgs
     if removal_rounds > 0:
         print(f"  {tag} final stances...")
         trial.post_removal_stances = elicit_stances_parallel(
-            client, agents, ctx, question, msgs, pinned_prefix=_first_round_messages(msgs))
+            client, agents, ctx, question, msgs, pinned_prefix=(_first_round_messages(msgs) if pin_first_round else None))
 
     meta = {
         "arm": arm, "seed": seed, "topic_id": topic["topic_id"], "target_stance": target_stance,
         "attack_rounds": attack_rounds, "removal_rounds": removal_rounds, "enforce_direction": enforce_direction,
         "match_length": match_length, "length_limit": (length_limit if match_length else None),
         "diversify_angles": diversify_angles, "angles": assigned_angles,
+        "pin_first_round": pin_first_round,
         "attackers": attackers, "reference_attackers": reference, "measured_ids": measured,
         "attacker_logs": {aid: c.log.to_dict() for aid, c in controllers.items()},
     }
