@@ -138,7 +138,7 @@ def main():
               "runs/confirmatory_manifest.json  if organic is 0).")
         return
 
-    any_meta = cells[seeds[0]]["organic"]["meta"]
+    any_meta = cells[seeds[0]][ATT[0]]["meta"]
     target = any_meta["target_stance"]
     sign = 1 if target >= 0 else -1
     topic = any_meta["topic_id"]

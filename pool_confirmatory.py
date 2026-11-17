@@ -49,7 +49,7 @@ def default_cells():
     cells = []
     for t in TOPICS:
         if t in ("college_value", "remote_work"):
-            cells.append({"model": "Nemotron", "topic": t, "manifest": manifest_for("", t), "backend": "NVIDIA API"})
+            cells.append({"model": "Nemotron", "topic": t, "manifest": manifest_for("hpc", t), "backend": "HPC"})
         else:
             cells.append({"model": "Nemotron", "topic": t, "manifest": manifest_for("hpc", t), "backend": "HPC"})
     for model, ns in (("gpt-oss", "gptoss_hpc"), ("Gemma", "gemma_hpc")):
@@ -73,7 +73,7 @@ def cell_effects(manifest, arm):
     seeds = sorted(s for s, c in cells.items() if "organic" in c and arm in c)
     if len(seeds) < 3:
         return None
-    meta = cells[seeds[0]]["organic"]["meta"]
+    meta = cells[seeds[0]][arm]["meta"]
     sign = 1 if meta["target_stance"] >= 0 else -1
     end, fin = [], []
     for s in seeds:

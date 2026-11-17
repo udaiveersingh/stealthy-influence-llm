@@ -230,3 +230,5 @@ key.json
 # Local archives and transfer bundles
 *.tgz
 *.tar.gz
+
+results_hpc2/human_validation_v2/
