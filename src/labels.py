@@ -11,6 +11,13 @@ True once at start-up, for ALL arms, so organic controls and attack arms see ide
 """
 NEUTRAL = False
 
+# Open-advocate condition (run_confirmatory.py --disclose): agent_id -> public role label shown next to that
+# agent's id in every prompt other agents see (posting history and stance questions). Empty in all other runs.
+DISCLOSED = {}
+
 
 def display_id(agent_id: str) -> str:
-    return agent_id.split("_")[0] if NEUTRAL else agent_id
+    base = agent_id.split("_")[0] if NEUTRAL else agent_id
+    if agent_id in DISCLOSED:
+        return f"{base} ({DISCLOSED[agent_id]})"
+    return base

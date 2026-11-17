@@ -242,13 +242,18 @@ def run_confirmatory_trial(client, agents, topic, arm: str, seed: int,
                            attack_rounds: int = 3, removal_rounds: int = 3,
                            target_stance: float = -0.8, pin_first_round: bool = True,
                            enforce_direction: bool = False, match_length: bool = False,
-                           length_limit: int = 320, diversify_angles: bool = False):
+                           length_limit: int = 320, diversify_angles: bool = False, disclose: bool = False):
     """Returns (trial, meta). meta holds attacker ids, the measured set and per-attacker logs."""
     if arm not in ARMS:
         raise ValueError(f"unknown arm {arm!r}; choose from {list(ARMS)}")
     labels.NEUTRAL = True   # all arms, set before any prompt is built
 
     attackers, measured, reference = design_for(agents, seed, arm)
+    # Disclosed condition: identical attackers and instructions, but every other agent sees a platform label on each
+    # attacker (role, side and that they are coordinated) next to its id, in posts and stance questions alike. Reset on every trial so no other arm sees it.
+    side = "AGREE" if target_stance > 0 else "DISAGREE"
+    labels.DISCLOSED = ({aid: f"flagged by the platform: one of {len(attackers)} coordinated accounts assigned to argue the {side} side"
+                         for aid in attackers} if disclose else {})
     rng = random.Random(seed * 7919 + 1)
     info = client.info()
     trial = TrialRecord(
@@ -313,7 +318,7 @@ def run_confirmatory_trial(client, agents, topic, arm: str, seed: int,
         "attack_rounds": attack_rounds, "removal_rounds": removal_rounds, "enforce_direction": enforce_direction,
         "match_length": match_length, "length_limit": (length_limit if match_length else None),
         "diversify_angles": diversify_angles, "angles": assigned_angles,
-        "pin_first_round": pin_first_round,
+        "pin_first_round": pin_first_round, "disclosed": bool(disclose and attackers),
         "attackers": attackers, "reference_attackers": reference, "measured_ids": measured,
         "attacker_logs": {aid: c.log.to_dict() for aid, c in controllers.items()},
     }
