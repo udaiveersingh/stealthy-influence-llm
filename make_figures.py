@@ -23,9 +23,9 @@ TLAB = {"ai_regulation": "AI regulation", "college_value": "College value", "rem
         "free_speech_harm": "Free speech vs harm", "individual_vs_collective": "Individual vs collective",
         "traditional_family_roles": "Traditional family roles", "centralized_governance": "Centralized governance",
         "religion_public_life": "Religion in public life"}
-END = {"Nemotron": [.201, .178, .281, .206, .140, .077, .104, .097], "gpt-oss": [.123, .163, .212, .177, .033, .218, .240, .319],
+END = {"Nemotron": [.201, .106, .056, .206, .140, .077, .104, .097], "gpt-oss": [.123, .163, .212, .177, .033, .218, .240, .319],
        "Gemma": [.182, .180, .194, .121, .171, .355, .148, .090]}
-FIN = {"Nemotron": [.124, .134, -.104, .114, .113, .016, -.074, .032], "gpt-oss": [.032, .085, .171, .094, .006, .101, .081, .126],
+FIN = {"Nemotron": [.124, .047, -.220, .114, .113, .016, -.074, .032], "gpt-oss": [.032, .085, .171, .094, .006, .101, .081, .126],
        "Gemma": [.180, .078, .081, .091, .052, .104, .070, .011]}
 POOL = {"end": {"Nemotron": (.149, .101, .197), "gpt-oss": (.184, .117, .250), "Gemma": (.182, .121, .242), "All": (.170, .141, .199)},
         "final": {"Nemotron": (.054, -.014, .123), "gpt-oss": (.087, .051, .122), "Gemma": (.087, .048, .126), "All": (.075, .050, .100)}}
@@ -126,12 +126,12 @@ def fig3(out):
     import numpy as np
     M = np.array([FIN[m] for m in MODELS]).T
     fig, ax = plt.subplots(figsize=(3.05, 2.6))
-    im = ax.imshow(M, cmap="PuOr_r", vmin=-0.2, vmax=0.2, aspect="auto")
+    im = ax.imshow(M, cmap="PuOr_r", vmin=-0.25, vmax=0.25, aspect="auto")
     ax.set_xticks(range(3)); ax.set_xticklabels(MODELS)
     ax.set_yticks(range(8)); ax.set_yticklabels([TLAB[t] for t in TOPICS])
     for i in range(8):
         for j in range(3):
-            ax.text(j, i, f"{M[i, j]:+.2f}", ha="center", va="center", fontsize=6.8, color="black")
+            ax.text(j, i, f"{M[i, j]:+.2f}", ha="center", va="center", fontsize=6.8, color="white" if abs(M[i, j]) > 0.16 else "black")
     for s in ax.spines.values():
         s.set_visible(False)
     fig.tight_layout(); fig.savefig(os.path.join(out, "fig3_persistence.pdf")); plt.close(fig)
