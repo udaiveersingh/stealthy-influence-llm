@@ -17,6 +17,7 @@ import glob
 import json
 import os
 import random
+import re
 
 TOPICS = ["ai_regulation", "college_value", "remote_work", "free_speech_harm", "individual_vs_collective",
           "traditional_family_roles", "centralized_governance", "religion_public_life"]
@@ -38,6 +39,7 @@ def attackers_for(seed: int, k: int = 4) -> list:
 
 
 def tex(s: str) -> str:
+    s = re.sub(r"\bA([1-8])\b", r"P\1", s)        # agents saw neutral ids A1-A8; the paper labels them P1-P8
     s = "".join(ch for ch in s if ch >= " " or ch == "\n")
     rep = {"‑": "-", "‐": "-", " ": " ", "–": "--", "—": "---", "’": "'", "‘": "`",
            "“": "``", "”": "''", "…": "...", "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%",
