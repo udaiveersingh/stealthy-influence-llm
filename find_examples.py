@@ -82,7 +82,7 @@ def render(args):
     assert a not in attackers, "pick a measured agent, not an attacker"
     msgs = [m for m in att["messages"] if m["round_number"] <= 3]
     shown = []
-    for r in (1, 2, 3):
+    for r in [int(x) for x in args.rounds.split(",")]:
         rm = sorted([m for m in msgs if m["round_number"] == r], key=lambda m: m["sim_time"])
         own = next((m for m in rm if m["agent_id"] == a), None)
         before = [m for m in rm if m["agent_id"] in attackers and (own is None or m["sim_time"] < own["sim_time"])]
@@ -105,13 +105,55 @@ def render(args):
     print(f"\nwrote {out}  ({args.model}, {TOPIC_NAMES[args.topic]}, seed {args.seed}, agent {LABEL[a]})")
 
 
+def inspect(args):
+    """Print the conversation of the clearest conversions, for choosing a figure by reading it."""
+    rows = []
+    for model, ns in NS.items():
+        for topic in TOPICS:
+            for seed in range(1, 21):
+                att, org = load(ns, topic, "attack4", seed), load(ns, topic, "organic", seed)
+                if not att or not org:
+                    continue
+                attackers = set(attackers_for(seed))
+                for a in att["pre_stances"]:
+                    if a in attackers or a not in org.get("post_stances", {}):
+                        continue
+                    try:
+                        pre = att["pre_stances"][a]
+                        ae, af = att["post_stances"][a], att["post_removal_stances"][a]
+                        te, tf = org["post_stances"][a], org["post_removal_stances"][a]
+                    except KeyError:
+                        continue
+                    # a real conversion: starts on the side opposite the target, crosses toward it, stays,
+                    # while the same agent in the twin barely moves
+                    if pre >= 0.3 and ae <= -0.2 and af <= -0.2 and abs(te - pre) <= 0.15 and abs(tf - pre) <= 0.2:
+                        rows.append(((pre - ae) + (pre - af), model, topic, seed, a, att, org))
+    rows.sort(key=lambda r: -r[0])
+    for score, model, topic, seed, a, att, org in rows[:args.top]:
+        attackers = set(attackers_for(seed))
+        print("=" * 110)
+        print(f"{model} | {topic} | seed {seed} | agent {LABEL[a]} ({ROLE[a]}) | attackers "
+              f"{', '.join(sorted(LABEL[x] for x in attackers))}")
+        print(f"  attacked {att['pre_stances'][a]:+.2f} -> {att['post_stances'][a]:+.2f} -> {att['post_removal_stances'][a]:+.2f}"
+              f"   twin {org['pre_stances'][a]:+.2f} -> {org['post_stances'][a]:+.2f} -> {org['post_removal_stances'][a]:+.2f}")
+        for r in (1, 2, 3):
+            rm = sorted([m for m in att["messages"] if m["round_number"] == r], key=lambda m: m["sim_time"])
+            for m in rm:
+                if m["agent_id"] == a or m["agent_id"] in attackers:
+                    tag = "ATT" if m["agent_id"] in attackers else ">>>"
+                    print(f"  R{r} {tag} {LABEL[m['agent_id']]}: {tex(m['content'])[:300]}")
+    print(f"\n{len(rows)} clear conversions found; showing {min(len(rows), args.top)}.")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("rank"); r.add_argument("--top", type=int, default=15)
+    i = sub.add_parser("inspect"); i.add_argument("--top", type=int, default=8)
     d = sub.add_parser("render")
     d.add_argument("--model", required=True, choices=list(NS)); d.add_argument("--topic", required=True, choices=TOPICS)
     d.add_argument("--seed", type=int, required=True); d.add_argument("--agent", required=True)
     d.add_argument("--max-posts", type=int, default=6)
+    d.add_argument("--rounds", default="1,2,3", help="rounds to show, e.g. 1,3")
     a = ap.parse_args()
-    {"rank": rank, "render": render}[a.cmd](a)
+    {"rank": rank, "render": render, "inspect": inspect}[a.cmd](a)
