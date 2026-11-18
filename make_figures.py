@@ -139,7 +139,7 @@ def fig3(out):
 
 def fig4(out):
     # Column-width version: (a) on top, (b) below.
-    fig, axes = plt.subplots(2, 1, figsize=(3.15, 3.0), gridspec_kw={"height_ratios": [1, 1]})
+    fig, axes = plt.subplots(2, 1, figsize=(3.15, 2.55), gridspec_kw={"height_ratios": [1, 1]})
     ax = axes[0]
     labs = ["4/8\n50%", "8/32\n25%", "4/32\n12.5%", "51/512\n10%", "10/512\n2%"]
     e = [0.128, 0.149, 0.096, 0.030, 0.006]; f = [0.036, 0.094, 0.052, 0.023, 0.012]

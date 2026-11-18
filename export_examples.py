@@ -47,10 +47,11 @@ def tex(s: str) -> str:
 
 
 def find_trial(topic: str, seed: int, model_key: str):
-    pats = [f"logs/**/attack4_{topic}_s{seed}_*.json"]
+    # main runs only: agree__, open__ and nopin__ folders hold other conditions with the same file names
+    pats = [f"logs/*/confirmatory_short*/attack4_{topic}_s{seed}_*.json"]
     for p in pats:
-        for fn in sorted(glob.glob(p, recursive=True)):
-            if "scale32" in fn or "society" in fn or "test" in fn:
+        for fn in sorted(glob.glob(p)):
+            if fn.endswith("_meta.json") or "scale32" in fn or "society" in fn or "test" in fn:
                 continue
             try:
                 d = json.load(open(fn))
@@ -61,7 +62,17 @@ def find_trial(topic: str, seed: int, model_key: str):
     return None, None
 
 
-def block(topic: str, model: str, seed: int, d: dict) -> str:
+def twin_of(fn: str, topic: str, seed: int):
+    for g in sorted(glob.glob(os.path.join(os.path.dirname(fn), f"organic_{topic}_s{seed}_*.json"))):
+        if not g.endswith("_meta.json"):
+            try:
+                return json.load(open(g))
+            except Exception:
+                pass
+    return None
+
+
+def block(topic: str, model: str, seed: int, d: dict, twin: dict | None = None) -> str:
     att = set(attackers_for(seed))
     msgs = [m for m in d["messages"] if m["round_number"] <= 3]
     shown = []
@@ -80,7 +91,13 @@ def block(topic: str, model: str, seed: int, d: dict) -> str:
     pre, end, fin = d.get("pre_stances", {}), d.get("post_stances", {}), d.get("post_removal_stances", {})
     st = "; ".join(f"{LABEL[a]} ${pre.get(a, float('nan')):+.2f} \\rightarrow {end.get(a, float('nan')):+.2f} "
                    f"\\rightarrow {fin.get(a, float('nan')):+.2f}$" for a in meas if a in pre)
-    lines.append(f"{{\\footnotesize\\noindent Stances of the measured agents (start $\\rightarrow$ end $\\rightarrow$ final): {st}.}}\n")
+    lines.append(f"{{\\footnotesize\\noindent Stances of the measured agents (start $\\rightarrow$ end $\\rightarrow$ final): {st}.}}")
+    if twin:
+        tp, te, tf = twin.get("pre_stances", {}), twin.get("post_stances", {}), twin.get("post_removal_stances", {})
+        ts = "; ".join(f"{LABEL[a]} ${tp.get(a, float('nan')):+.2f} \\rightarrow {te.get(a, float('nan')):+.2f} "
+                       f"\\rightarrow {tf.get(a, float('nan')):+.2f}$" for a in meas if a in tp)
+        lines.append(f"{{\\footnotesize\\noindent Same agents in the attacker-free twin: {ts}.}}")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -96,7 +113,7 @@ if __name__ == "__main__":
         for name, key in order:                                       # fall back to the next model if missing
             fn, d = find_trial(topic, a.seed, key)
             if d:
-                parts.append(block(topic, name, a.seed, d))
+                parts.append(block(topic, name, a.seed, d, twin_of(fn, topic, a.seed)))
                 print(f"  {topic:26s} {name:9s} {fn}")
                 break
         else:
